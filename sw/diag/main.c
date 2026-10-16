@@ -2,9 +2,15 @@
 #include "xparameters.h"
 #include "xil_printf.h"
 #include "xuartps_hw.h"
+#include "xuartps.h"
 #include <stdint.h>
 #define REG(a) (*(volatile unsigned *)(0x40000000u + (a)))
 int main(void) {
+    static XUartPs uart;
+    XUartPs_Config *uc = XUartPs_LookupConfig(XPAR_XUARTPS_0_DEVICE_ID);
+    if (!uc || XUartPs_CfgInitialize(&uart, uc, uc->BaseAddress) != XST_SUCCESS ||
+        XUartPs_SetBaudRate(&uart, 115200) != XST_SUCCESS)
+        return 1;
     unsigned cfg = 0x00880003, key = 0;
     xil_printf("\r\nZ7_SCOPE OCM_DIAG DDR_UNAVAILABLE MEM_SEG_DISABLED\r\n");
     xil_printf("keys: K1 source SIM/ADC; K2 RUN/STOP; UART s=SIM a=ADC r=RUN p=STOP v=STATUS\r\n");

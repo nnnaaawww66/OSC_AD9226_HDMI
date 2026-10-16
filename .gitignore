@@ -18,3 +18,8 @@ results/
 *.xpr
 docs/Acceptance.json
 
+
+NA/
+usage_statistics_webtalk.*
+*.str
+__pycache__/

@@ -4,6 +4,7 @@
 #include "xil_exception.h"
 #include "xscugic.h"
 #include "xuartps_hw.h"
+#include "xuartps.h"
 #include "xtime_l.h"
 #include "sleep.h"
 #include "scope_analysis.h"
@@ -35,7 +36,7 @@ static unsigned mem_gate, mem_valid, seg_count, last_record, valid_record, refre
 static uint32_t hits, drops;
 static unsigned roll_sequence, roll_columns, roll_lost;
 static uint64_t roll_time;
-static unsigned mem_source_sim, segment_sim[SEGMENTS], raster_fault;
+static unsigned mem_source_sim, segment_sim[SEGMENTS], raster_fault, record_source_sim;
 static uint64_t mem_first_index;
 static uint64_t segment_time[SEGMENTS], first_index;
 static unsigned segment_len[SEGMENTS];
@@ -88,10 +89,26 @@ static int apply(void) {
         set_message("CFG HANDSHAKE TIMEOUT");
         return 0;
     }
+    unsigned old_ctrl = scope_read(R_CTRL);
+    if (((old_ctrl >> 1) & 1) != cfg.sim || ((old_ctrl >> 6) & 1) != cfg.encoding) {
+        valid_record = 0;
+        memset(hist, 0, sizeof(hist));
+        memset(wave, 0, sizeof(wave));
+        roll_sequence = 0;
+        roll_columns = 0;
+        if (wait_idle(0xb4, 1, 50))
+            scope_write(0xb8, 1);
+    }
     scope_write(R_CTRL, (cfg.run ? 1 : 0) | (cfg.sim ? 2 : 0) | (cfg.edge ? 4 : 0) |
                             (cfg.trig << 3) | (cfg.encoding << 6) | (cfg.level << 8) |
                             (cfg.hyst << 20));
     scope_write(R_MODE, cfg.mode);
+    if (!wait_idle(R_STATE, 1u << 9, 50)) {
+        set_message("ADC CONFIG ACK TIMEOUT");
+        return 0;
+    }
+    /* Two complete status scans plus handshake margin drain any pre-configuration ready message. */
+    usleep(2 * 256 * 1000000 / cfg.rate + 10);
     if (cfg.run)
         valid_record = 0;
     last_record = scope_read(R_TRIG);
@@ -166,10 +183,11 @@ static const char *state_name(unsigned s) {
 static void draw_ui(void) {
     memset(screen, ' ', sizeof(screen));
     unsigned s = scope_read(R_STATE);
-    unsigned visible_sim =
-        (cfg.mode == MEM && mem_valid)
-            ? mem_source_sim
-            : (cfg.mode == SEG && segment_len[cfg.segment] ? segment_sim[cfg.segment] : cfg.sim);
+    unsigned visible_sim = (cfg.mode == MEM && mem_valid)
+                               ? mem_source_sim
+                               : (cfg.mode == SEG && segment_len[cfg.segment]
+                                      ? segment_sim[cfg.segment]
+                                      : (valid_record ? record_source_sim : cfg.sim));
     uint32_t err = scope_read(R_ERRORS);
     text(1, 3, "Z7 SCOPE  |  %-4s  |  %s  |  %s  |  %u MSa/s  |  %s", modes[cfg.mode],
          cfg.run ? "RUN " : "STOP", visible_sim ? "SIM " : "ADC ", cfg.rate / 1000000,
@@ -180,6 +198,9 @@ static void draw_ui(void) {
     text(4, 3, "CH1  12-bit / %s    %s", visible_sim ? "SIM TEST SOURCE" : "AD9226",
          cfg.uv_per_code > 0 ? "VOLTAGE CALIBRATED" : "ADC CODE SCALE / VOLTAGE N/A");
     text(5, 126, "MEASUREMENTS / CH1");
+    text(6, 126,
+         (cfg.mode == MEM || cfg.mode == SEG) ? "SOURCE: PLAYBACK WINDOW"
+                                              : "SOURCE: LAST 16K RECORD");
     if (valid_record) {
         text(8, 126, "MIN / MAX  %u / %u", measurement.min, measurement.max);
         text(10, 126, "PkPk       %u code", measurement.max - measurement.min);
@@ -415,6 +436,7 @@ static void process_record(void) {
         record[i] = (uint16_t)scope_read(0x10000 + 4 * i);
     first_index = (((uint64_t)scope_read(R_TIME + 4) << 32) | scope_read(R_TIME)) - 8192;
     last_record = t;
+    record_source_sim = cfg.sim;
     if (cfg.mode != ROLL)
         valid_record = 1;
     captures_processed++;
@@ -980,9 +1002,18 @@ static void poll_uart(void) {
         }
     }
 }
+static int uart_init(void) {
+    static XUartPs uart;
+    XUartPs_Config *uc = XUartPs_LookupConfig(XPAR_XUARTPS_0_DEVICE_ID);
+    if (!uc || XUartPs_CfgInitialize(&uart, uc, uc->BaseAddress) != XST_SUCCESS)
+        return 0;
+    return XUartPs_SetBaudRate(&uart, 115200) == XST_SUCCESS;
+}
 int main(void) {
     Xil_ICacheEnable();
     Xil_DCacheEnable();
+    if (!uart_init())
+        return 1;
     printf("\r\nZ7_SCOPE BOOT fw=3.0 SDK=2018.3 DDR DMA reserved 0x10000000..0x105FFFFF\r\n");
     if (scope_read(R_ID) != 0x53434f50) {
         printf("ERR code=PL_ID_MISMATCH\r\n");

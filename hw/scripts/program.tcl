@@ -1,5 +1,8 @@
+if {[catch {
 # SDK 2018.3 XSCT only. Volatile JTAG programming; never writes Flash.
 set root [file normalize [file join [file dirname [info script]] ../..]]
+set success $root/results/2026-10-17/program.ok
+file delete -force $success
 connect -url tcp:127.0.0.1:3121
 set devices [targets -target-properties]
 puts $devices
@@ -18,7 +21,7 @@ foreach core {0 1} {
  stop
 }
 targets -set -filter {name =~ "ARM*#0"}
-source $root/sw/sdk2018/scope_hw/ps7_init.tcl
+source $root/results/2026-10-17/ps7_init.tcl
 rename mask_poll vendor_mask_poll
 proc mask_poll {addr mask} {
  for {set i 0} {$i < 5000} {incr i} {
@@ -35,11 +38,14 @@ if {[catch {ps7_init} init_error]} {
  set sv [ps_version]
  if {$sv == $PCW_SILICON_VER_1_0} {ps7_peripherals_init_data_1_0} elseif {$sv == $PCW_SILICON_VER_2_0} {ps7_peripherals_init_data_2_0} else {ps7_peripherals_init_data_3_0}
  ps7_post_config
- dow $root/sw/sdk2018/scope_diag/Release/scope_diag.elf
+ dow $root/results/2026-10-17/scope_diag.elf
 } else {
  ps7_post_config
- dow $root/sw/sdk2018/scope/Release/scope.elf
+ dow $root/results/2026-10-17/scope.elf
 }
 con
 disconnect
-exit
+set f [open $success w];puts $f "JTAG_START_PASS [clock format [clock seconds]]";close $f
+
+} failure]} {puts stderr "PROGRAM_FAILED: $failure";exit 1}
+exit 0

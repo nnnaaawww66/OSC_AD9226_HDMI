@@ -14,15 +14,15 @@ VIVADO_VERSION: Vivado 2018.3 / SW Build 2405991。
 
 SDK_VERSION: SDK/XSCT 2018.3，实际 BSP 和 Cortex-A9 ELF 编译日志已保留。
 
-JTAG_TARGET: 最后探测见 results/2026-10-17/probe.log；初次未检测到可连接的目标。
+JTAG_TARGET: 最后探测见 results/2026-10-17/probe_final.log；未检测到可连接的目标。
 
-UART_COM: 当前未检测到 CH340E；现有蓝牙及虚拟串口不作为板卡 UART。
+UART_COM: 已检测到 USB-SERIAL CH340 (COM5)，VID_1A86 / PID_7523；尚未收到本固件身份回读，蓝牙及虚拟串口不作为板卡 UART。
 
 GATE_G0: LIMITED。逻辑连线和用户供电/CLK 陈述已登记；模块电路、前端范围及实测偏斜未完成仪器验收。
 
 NEXT_ACTION: 在代码、仿真、资源和时序审查后进行低速 SIM 上板；接通 JTAG/UART 才执行硬件步骤。
 
-BLOCKER: 缺少在线 JTAG/UART 目标、实板 HDMI 观察及信号源/示波器时序测量证据。
+BLOCKER: 缺少在线 JTAG 目标、固件 UART 回读、实板 HDMI 观察及信号源/示波器时序测量证据。
 
 ## 核查结论
 

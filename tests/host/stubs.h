@@ -8,6 +8,7 @@ typedef struct{unsigned CpuBaseAddress;}XScuGic_Config;typedef struct{unsigned d
 #define COUNTS_PER_SECOND 1000000
 #define XPAR_SCUGIC_SINGLE_DEVICE_ID 0
 #define XPAR_XUARTPS_0_BASEADDR 0
+#define XPAR_XUARTPS_0_DEVICE_ID 0
 #define XST_SUCCESS 0
 #define XIL_EXCEPTION_ID_INT 0
 #define XUARTPS_FIFO_OFFSET 0
@@ -26,4 +27,9 @@ static inline void XScuGic_Enable(XScuGic*p,unsigned n){(void)p;(void)n;}
 static inline int XUartPs_IsReceiveData(unsigned a){(void)a;return 0;}
 static inline unsigned XUartPs_ReadReg(unsigned a,unsigned b){(void)a;(void)b;return 0;}
 static inline void usleep(unsigned a){Sleep(a/1000);}
+typedef struct{unsigned BaseAddress;}XUartPs_Config;
+typedef struct{unsigned dummy;}XUartPs;
+static inline XUartPs_Config*XUartPs_LookupConfig(unsigned n){static XUartPs_Config c;(void)n;return &c;}
+static inline int XUartPs_CfgInitialize(XUartPs*p,XUartPs_Config*c,unsigned a){(void)p;(void)c;(void)a;return 0;}
+static inline int XUartPs_SetBaudRate(XUartPs*p,unsigned n){(void)p;(void)n;return 0;}
 #endif
