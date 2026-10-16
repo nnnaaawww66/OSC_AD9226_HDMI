@@ -4,10 +4,20 @@ connect -url tcp:127.0.0.1:3121
 set devices [targets -target-properties]
 puts $devices
 # Select only the Zynq-7000 device and Cortex-A9 #0; fail on an ambiguous/missing chain.
+# Halt both cores before changing PL/DDR, including a core previously started by an SD image.
+foreach core {0 1} {
+ targets -set -filter [format {name =~ "ARM*#%d"} $core]
+ stop
+}
 targets -set -filter {name =~ "xc7z010*"}
 fpga -file $root/results/2026-10-17/scope_top.bit
 targets -set -filter {name =~ "ARM*#0"}
-rst -processor
+rst -cores
+foreach core {0 1} {
+ targets -set -filter [format {name =~ "ARM*#%d"} $core]
+ stop
+}
+targets -set -filter {name =~ "ARM*#0"}
 source $root/sw/sdk2018/scope_hw/ps7_init.tcl
 rename mask_poll vendor_mask_poll
 proc mask_poll {addr mask} {

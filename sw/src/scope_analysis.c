@@ -214,3 +214,38 @@ void scope_density(uint8_t *h, const uint16_t *d, unsigned n, unsigned rate, uns
         py = y;
     }
 }
+
+static unsigned dds_code(uint32_t phase) {
+    phase &= 0xffffff;
+    return (phase & 0x800000) ? 4095 - ((phase >> 11) & 4095) : ((phase >> 11) & 4095);
+}
+int scope_validate_dds(const uint16_t *data, unsigned n, uint32_t step, uint32_t *phase,
+                       unsigned *bad_index) {
+    if (n < 2048) {
+        *bad_index = 0;
+        return 0;
+    }
+    for (unsigned sign = 0; sign < 2; sign++)
+        for (unsigned low = 0; low < 2048; low++) {
+            uint32_t ph =
+                (sign << 23) | ((sign ? 4095 - (data[0] & 4095) : (data[0] & 4095)) << 11) | low;
+            unsigned j;
+            /* Full fractional period disambiguates initial phases sharing a short quantized prefix.
+             */
+            for (j = 0; j < 2048; j++)
+                if (data[j] != dds_code(ph + step * j))
+                    break;
+            if (j != 2048)
+                continue;
+            *phase = ph;
+            for (j = 2048; j < n; j++)
+                if (data[j] != dds_code(ph + step * j)) {
+                    *bad_index = j;
+                    return 0;
+                }
+            *bad_index = n;
+            return 1;
+        }
+    *bad_index = 0;
+    return 0;
+}

@@ -22,6 +22,10 @@ report_drc -file $results/drc.rpt
 report_io -file $results/io.rpt
 report_power -file $results/power.rpt
 report_cdc -file $results/cdc.rpt
+set cdc_detail [report_cdc -details -return_string]
+set f [open $results/cdc_details.rpt w];puts $f $cdc_detail;close $f
+if {[regexp {CDC-[0-9]+[ \t]+Critical} $cdc_detail]} {error "CDC gate failed; unsafe crossing remains"}
+
 check_timing -verbose -file $results/check_timing.rpt
 set bad_setup [get_timing_paths -quiet -delay_type max -slack_lesser_than 0]
 set bad_hold [get_timing_paths -quiet -delay_type min -slack_lesser_than 0]

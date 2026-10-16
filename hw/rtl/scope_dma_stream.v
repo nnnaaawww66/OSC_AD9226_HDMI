@@ -17,9 +17,12 @@ module scope_dma_stream
      input wire [63 : 0] sample_index,
      output reg [63 : 0] first_index = 0);
 
+    reg reset_request = 1;
+    always @(posedge bus_clk)
+        reset_request <= bus_rst | flush;
     (* ASYNC_REG = "TRUE" *) reg [7 : 0] reset_pipe = 8'hff;
-    always @(posedge adc_clk or posedge bus_rst or posedge flush)
-        if (bus_rst || flush)
+    always @(posedge adc_clk or posedge reset_request)
+        if (reset_request)
             reset_pipe <= 8'hff;
         else
             reset_pipe <= {reset_pipe[6 : 0], 1'b0};

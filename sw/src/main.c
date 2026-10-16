@@ -526,38 +526,10 @@ static int memory_capture(int verify_sim) {
     const uint16_t *p = (uint16_t *)DMA_BUFFER;
 
     if (verify_sim) {
-        unsigned mismatches = 0;
-        uint32_t matched_phase = 0;
-        int matched = 0;
-        for (unsigned sign = 0; sign < 2 && !matched; sign++)
-            for (unsigned low = 0; low < 2048 && !matched; low++) {
-                uint32_t ph =
-                    (sign << 23) | ((sign ? 4095 - (p[0] & 4095) : (p[0] & 4095)) << 11) | low;
-                unsigned j;
-                for (j = 0; j < 64; j++) {
-                    uint32_t q = (ph + 16777 * j) & 0xffffff;
-                    unsigned expected =
-                        (q & 0x800000) ? 4095 - ((q >> 11) & 4095) : ((q >> 11) & 4095);
-                    if (p[j] != expected)
-                        break;
-                }
-                if (j == 64) {
-                    matched = 1;
-                    matched_phase = ph;
-                }
-            }
-        if (!matched) {
-            reply(0, "code=DMA_SIM_PHASE");
-            goto fail;
-        }
-        for (unsigned i = 0; i < DMA_BUFFER_BYTES / 2; i++) {
-            uint32_t q = (matched_phase + 16777 * i) & 0xffffff;
-            unsigned expected = (q & 0x800000) ? 4095 - ((q >> 11) & 4095) : ((q >> 11) & 4095);
-            if (p[i] != expected)
-                mismatches++;
-        }
-        if (mismatches) {
-            reply(0, "code=DMA_SIM_COMPARE mismatch=%u", mismatches);
+        uint32_t phase;
+        unsigned bad_index;
+        if (!scope_validate_dds(p, DMA_BUFFER_BYTES / 2, 16777, &phase, &bad_index)) {
+            reply(0, "code=DMA_SIM_COMPARE index=%u", bad_index);
             goto fail;
         }
     }
@@ -1034,6 +1006,7 @@ int main(void) {
             if (start + cfg.span > 1048576)
                 start = 1048576 - cfg.span;
             scope_envelope(p, 1048576, start, cfg.span, wave);
+            scope_measure(p + start, cfg.span, cfg.rate, &measurement);
             valid_record = 1;
         }
         if (cfg.mode == SEG && seg_count) {
@@ -1041,8 +1014,10 @@ int main(void) {
             if (segment_len[s]) {
                 uint16_t *p = (uint16_t *)(uintptr_t)(SEG_BUFFER + s * SCOPE_N * 2);
                 scope_envelope(p, SCOPE_N, (SCOPE_N - cfg.span) / 2, cfg.span, wave);
+                scope_measure(p + (SCOPE_N - cfg.span) / 2, cfg.span, cfg.rate, &measurement);
                 valid_record = 1;
-            }
+            } else
+                valid_record = 0;
         }
         if ((dirty || elapsed_ms(last_render) > 1000) && elapsed_ms(last_render) > 100)
             upload();

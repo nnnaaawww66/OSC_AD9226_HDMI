@@ -118,6 +118,25 @@ module scope_display
     end
     wire [13 : 0] hist_read_index = (hy_product >> 12) * HW + (hx_product >> 12);
     reg [19 : 0] wq = 0;
+    wire [19 : 0] pair_q;
+    wire [9 : 0] pair_addr = wx_address + 1'b1;
+    generate
+        if (VIDEO_VGA) begin : g_vga_envelope
+            (* ram_style = "block" *) reg [19 : 0] pair_memory[0 : 2047];
+            reg [19 : 0] q = 0;
+            always @(posedge sys_clk)
+                if (wave_we && !pending)
+                    pair_memory[{bank_sys, wave_addr}] <= wave_data;
+            always @(posedge pixel_clk)
+                q <= pair_memory[{bank_pix, pair_addr}];
+            assign pair_q = q;
+        end else begin
+            assign pair_q = 0;
+        end
+    endgenerate
+    wire [9 : 0] pair_top = wq[9 : 0] < pair_q[9 : 0] ? wq[9 : 0] : pair_q[9 : 0];
+    wire [9 : 0] pair_bottom = wq[19 : 10] > pair_q[19 : 10] ? wq[19 : 10] : pair_q[19 : 10];
+
     reg [7 : 0] hq = 0, cq = 32, fq = 0;
     reg [11 : 0] x1 = 0, y1 = 0, x2 = 0, y2 = 0, x3 = 0, y3 = 0;
     reg [19 : 0] w2 = 0, w3 = 0;
@@ -145,7 +164,7 @@ module scope_display
         fq <= font[{cq[6 : 0], row1}] |
               ((VIDEO_VGA && row1 < 15) ? font[{cq[6 : 0], row1 + 4'd1}] : 8'd0);
         bit2 <= bit1;
-        w2 <= wq;
+        w2 <= VIDEO_VGA ? {pair_bottom, pair_top} : wq;
         h2 <= hq;
         font3 <= fq;
         bit3 <= bit2;
@@ -161,7 +180,8 @@ module scope_display
                 (x3 == 500) || (x3 == 596) || (x3 == 692) || (x3 == 788) || (x3 == 884) ||
                 (y3 == 70) || (y3 == 124) || (y3 == 178) || (y3 == 232) || (y3 == 286) ||
                 (y3 == 340) || (y3 == 394) || (y3 == 448) || (y3 == 502) || (y3 == 556);
-    wire trace = in_plot && y3 >= w3[9 : 0] && y3 <= w3[19 : 10] && meta_pix[31];
+    wire trace = in_plot && (VIDEO_VGA ? (y3 + 1 >= w3[9 : 0]) : (y3 >= w3[9 : 0])) &&
+                 y3 <= w3[19 : 10] && meta_pix[31];
     wire [23 : 0] heat = h3 < 16    ? {8'd0, h3 << 3, 8'h40}
                          : h3 < 64  ? {8'd0, 8'hc0, h3 << 2}
                          : h3 < 128 ? {h3 << 1, 8'hff, 8'd0}

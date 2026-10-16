@@ -2,7 +2,7 @@
 
 ## 首次启动
 
-接线见Pin_Map.csv。HDMI接板载TMDS接口。连接板载USB-JTAG以及CH340E Type-C UART，串口115200 8N1。先运行构建脚本，再使用program.ps1。只有正式数字时序门禁通过才产生用于下载的bit；任何硬件验收项仍应以真实屏幕、串口与仪器记录为准。
+接线见Pin_Map.csv。HDMI接板载TMDS接口。连接板载USB-JTAG以及CH340E Type-C UART，串口115200 8N1。当前发布配置硬件固定10MSa/s，高速选择保持关闭。先运行构建脚本，再使用program.ps1。只有正式数字时序门禁通过才产生用于下载的bit；任何硬件验收项仍应以真实屏幕、串口与仪器记录为准。
 
 上电默认10MSa/s SIM，真实输入切换使用菜单或`adc source real`。内部SIM是可重复DDS三角波，便于区分数字链路问题和ADC/模拟输入问题。未加载PS ELF时，PL也能显示诊断页和16K包络。若DDR初始化超时，JTAG脚本会选择OCM恢复控制台，其命令为s/a/r/p/v，不能误认为完整七模式固件。
 

@@ -4,6 +4,7 @@
 
 | 偏移 | 名称 | 方向与含义 |
 |---|---|---|
+| 0F0/0F4 | VIDEO_PROFILE/SOURCE_SHA | RO，0=720p、1=640×480；32位RTL源码Git摘要 |
 | 000/004 | ID/VERSION | RO，53434F50 / 00030000 |
 | 008 | CTRL | RW，bit0 RUN，1 SIM，2 FALL，4:3 Auto/Normal/Single，6补码，19:8阈值，27:20迟滞；完整邮箱握手后采样域应用 |
 | 00C | MODE | RW，0DSO/1DPX/2EYE/3FFT/4ROLL/5MEM/6SEG |

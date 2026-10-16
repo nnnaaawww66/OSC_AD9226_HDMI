@@ -40,4 +40,12 @@ for kind,n,stride in [('DC',4096,1),('NOISE',2048,1),('BOXCAR',1024,16)]:
  err=np.max(np.abs(re+1j*im-ref))/max(1,np.max(np.abs(ref)))
  assert err<8e-5,(kind,err)
  results['fft_'+kind]={'relative_complex_error':float(err),'stride':stride}
+
+lib.scope_validate_dds.argtypes=[p16,c.c_uint,c.c_uint32,c.POINTER(c.c_uint32),c.POINTER(c.c_uint)]
+for ph in [0,1,2047,0x8fffff,0xf00321]:
+ phases=(np.uint64(ph)+np.arange(16384,dtype=np.uint64)*16777)&0xffffff
+ data=np.where(phases&0x800000,4095-((phases>>11)&4095),(phases>>11)&4095).astype(np.uint16)
+ got=c.c_uint32();bad=c.c_uint();assert lib.scope_validate_dds(data,len(data),16777,c.byref(got),c.byref(bad))==1
+ data[4095]=data[4094];assert lib.scope_validate_dds(data,len(data),16777,c.byref(got),c.byref(bad))==0 and bad.value==4095
+results['DMA_DDS_PHASE']='PASS exact phase recovery across fractional boundaries and deliberate sample duplication'
 (out/'analysis_tests.json').write_text(json.dumps(results,indent=2));print('PASS portable C analysis against NumPy; seed=7010')

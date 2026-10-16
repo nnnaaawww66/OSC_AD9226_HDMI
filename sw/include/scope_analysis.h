@@ -21,5 +21,7 @@ void scope_set_hit_sink(void (*sink)(unsigned));
 void scope_density(uint8_t *hist, const uint16_t *data, unsigned n, unsigned rate, unsigned bitrate,
                    int eye, uint64_t first_index, unsigned limit, uint32_t *hits,
                    uint32_t *dropped);
+int scope_validate_dds(const uint16_t *data, unsigned n, uint32_t step, uint32_t *phase,
+                       unsigned *bad_index);
 uint32_t scope_crc32(const void *data, unsigned bytes);
 #endif
