@@ -1,0 +1,20 @@
+# AD9226 Rev.B p3 tOD=3.5..7ns. Provisional external allowance=0..3ns.
+# Actual module flight/load delay and ADC phase must still be qualified on the board.
+# Explicit generated clocks on the selected ADC clock. The four branches are mutually exclusive.
+create_generated_clock -name adc10 -source [get_ports clk_50m] -master_clock pl_clk50 -multiply_by 13 -divide_by 65 -add [get_pins clocks/ratemux/O]
+create_generated_clock -name adc_fwd10 -source [get_pins clocks/ratemux/O] -master_clock adc10 -divide_by 1 -add [get_ports adc_clk]
+set_input_delay -clock adc_fwd10 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_input_delay -clock adc_fwd10 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
+create_generated_clock -name adc25 -source [get_ports clk_50m] -master_clock pl_clk50 -multiply_by 13 -divide_by 26 -add [get_pins clocks/ratemux/O]
+create_generated_clock -name adc_fwd25 -source [get_pins clocks/ratemux/O] -master_clock adc25 -divide_by 1 -add [get_ports adc_clk]
+set_input_delay -clock adc_fwd25 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_input_delay -clock adc_fwd25 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
+create_generated_clock -name adc50 -source [get_ports clk_50m] -master_clock pl_clk50 -multiply_by 13 -divide_by 13 -add [get_pins clocks/ratemux/O]
+create_generated_clock -name adc_fwd50 -source [get_pins clocks/ratemux/O] -master_clock adc50 -divide_by 1 -add [get_ports adc_clk]
+set_input_delay -clock adc_fwd50 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_input_delay -clock adc_fwd50 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
+create_generated_clock -name adc65 -source [get_ports clk_50m] -master_clock pl_clk50 -multiply_by 13 -divide_by 10 -add [get_pins clocks/ratemux/O]
+create_generated_clock -name adc_fwd65 -source [get_pins clocks/ratemux/O] -master_clock adc65 -divide_by 1 -add [get_ports adc_clk]
+set_input_delay -clock adc_fwd65 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_input_delay -clock adc_fwd65 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_clock_groups -physically_exclusive -group [get_clocks {adc10 adc_fwd10}] -group [get_clocks {adc25 adc_fwd25}] -group [get_clocks {adc50 adc_fwd50}] -group [get_clocks {adc65 adc_fwd65}]

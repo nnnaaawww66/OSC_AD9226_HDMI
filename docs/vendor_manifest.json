@@ -1,0 +1,26 @@
+[
+  {
+    "source": "D:\\Downloads\\Z7-Lite_Z7010_2018.3\\02_SDK_Demo\\02_SDK_Demo\\1_hello_world\\hello_world\\hello_world.srcs\\sources_1\\bd\\hello_world\\hw_handoff\\hello_world_bd.tcl",
+    "sha256": "ed2a98209a4af8585da3fd471c3a924c5b71719072230646b4c7e735a3460554"
+  },
+  {
+    "source": "D:\\Downloads\\Z7-Lite_Z7010_2018.3\\01_FPGA_Demo\\02_FPGA_Demo_7010\\Lab9_FPGA_hdmi\\hdmi_trans.srcs\\sources_1\\new\\encode.v",
+    "sha256": "8d257141d7d105a20a7069c8244de4331231712314c6c7079e93bd002ac19299"
+  },
+  {
+    "source": "D:\\Downloads\\Z7-Lite_Z7010_2018.3\\01_FPGA_Demo\\02_FPGA_Demo_7010\\Lab9_FPGA_hdmi\\hdmi_trans.srcs\\sources_1\\new\\parallel_to_serial.v",
+    "sha256": "5525d1a1e2a4eafcba42336198abaeb66d7bd765e45bc5820a6ca31ba0bf9b91"
+  },
+  {
+    "source": "D:\\Downloads\\Z7-Lite_Z7010_2018.3\\01_FPGA_Demo\\02_FPGA_Demo_7010\\Lab9_FPGA_hdmi\\hdmi_trans.srcs\\sources_1\\new\\hdmi_trans.v",
+    "sha256": "81f05ca86706452bed9db352f9b4fb573439b0b6462b6a42d68a1d414aa44a4f"
+  },
+  {
+    "source": "D:\\Downloads\\Z7-Lite_Z7010_2018.3\\02_Z7-Lite硬件资料\\Z7-LITE_Rev1_1.pdf",
+    "sha256": "7e6c992efc270e7884f4c9517f0966b43084a5621b0695bb6c37710de6d6e5ea"
+  },
+  {
+    "source": "D:\\Downloads\\Z7-Lite_Z7010_2018.3\\02_Z7-Lite硬件资料\\Z7_LITE.xdc",
+    "sha256": "a47f722805cf25ab8aaa2749909ac7b0ff071a9f4ebcb8f59a0d1b15a234b183"
+  }
+]
