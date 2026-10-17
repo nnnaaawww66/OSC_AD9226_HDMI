@@ -9,16 +9,19 @@ targets -set -filter {name == "APU"}
 set start [clock milliseconds]
 set last_frame -1;set last_samples -1;set last_heartbeat -1;set checks 0
 puts $log "START [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S%z}] duration_s=$duration"
+puts $log [scope_jtag_command {mode dso}]
+puts $log [scope_jtag_command {run 1}]
 puts $log [scope_jtag_command {adc rate 65}]
 puts $log [scope_jtag_command selftest]
 puts $log [scope_jtag_command {adc source real}]
-puts $log [scope_jtag_command {mode dso}]
+puts $log [scope_jtag_command {trig type auto}]
+puts $log [scope_jtag_command {memory capture}]
 puts $log [scope_jtag_command clocks]
 while {[clock milliseconds]-$start < $duration*1000} {
  set s [scope_jtag_command status]
  set h [expr {[mrd -value -address-space AP0 0x2f00c]+0}]
- if {![regexp {source=ADC.*frame=([0-9]+) samples=([0-9]+):([0-9a-f]+).*otr=([0-9]+) drop=([0-9]+) errors=([0-9a-f]+)} $s -> frame hi lo otr drop errors]} {error "Status parse/source failed: $s"}
- scan $lo %x low;set sample [expr {wide($hi)*4294967296+$low}]
+ if {![regexp {source=ADC rate=65000000.*frame=([0-9]+) samples=([0-9]+):([0-9a-f]+).*otr=([0-9]+) drop=([0-9]+) errors=([0-9a-f]+)} $s -> frame hi lo otr drop errors]} {error "Status parse/source/rate failed: $s"}
+ scan $lo %x low;set sample [expr {wide($hi)*4294967296+($low & 0xffffffff)}]
  if {$frame<=$last_frame || $sample<=$last_samples || $h==$last_heartbeat || $drop!=0 || $errors ne "00000000"} {error "Continuity/error assertion: $s heartbeat=$h"}
  set locks [expr {[mrd -value -address-space AP0 0x40000024]+0}]
  if {($locks&0xc00)!=0xc00} {error "MMCM lock lost $locks"}

@@ -13,6 +13,7 @@ assert len(rows)>100,'insufficient continuity observations'
 assert re.search(r'^PASS duration_ms=([0-9]+)',text,re.M),'missing test completion marker'
 duration=int(re.search(r'^PASS duration_ms=([0-9]+)',text,re.M).group(1));assert duration>=3600000
 v=np.array(rows,dtype=np.int64)
+assert v[-1,0]-v[0,0]>=3600000,'actual observation span is shorter than one hour'
 assert np.all(v[:,3]==65000000)
 assert np.all(v[:,2]&0xc00==0xc00)
 assert np.all(np.diff(v[:,0])>0) and np.all(np.diff(v[:,4])>0) and np.all(np.diff(v[:,5])>0)
@@ -20,5 +21,15 @@ assert np.all(np.diff(v[:,1])!=0) and np.all(v[:,7:9]==0)
 t=(v[:,0]-v[0,0])/1000
 adc_rate=float(np.polyfit(t,v[:,5]-v[0,5],1)[0]);fps=float(np.polyfit(t,v[:,4]-v[0,4],1)[0])
 assert abs(adc_rate/65000000-1)<.01 and abs(fps-60)<.5
-result={'status':'PASS','duration_ms':duration,'observations':len(rows),'configured_rate_sps':65000000,'measured_counter_slope_sps':adc_rate,'measured_video_fps':fps,'maximum_observation_gap_ms':int(np.diff(v[:,0]).max()),'samples_observed':int(v[-1,5]-v[0,5]),'video_frames_observed':int(v[-1,4]-v[0,4]),'OTR_first_last':[int(v[0,6]),int(v[-1,6])],'DMA_drop':0,'error_flags':0,'input':'User-confirmed floating analog input','scope':'Digital clocks, real ADC selected, firmware continuity and video; no calibrated analog reference'}
+states=[]
+for line in text.splitlines():
+ m=re.search(r'^(\d+) heartbeat=.*?mode=(\w+) run=([01]) source=ADC',line)
+ if m:states.append((int(m[1]),m[2],int(m[3])))
+assert len(states)==len(rows)
+dwell={};run_dwell={0:0,1:0}
+for first,last in zip(states,states[1:]):
+ dt=last[0]-first[0]
+ dwell[first[1]]=dwell.get(first[1],0)+dt
+ run_dwell[first[2]]+=dt
+result={'status':'PASS','duration_ms':duration,'observations':len(rows),'configured_rate_sps':65000000,'measured_counter_slope_sps':adc_rate,'measured_video_fps':fps,'maximum_observation_gap_ms':int(np.diff(v[:,0]).max()),'samples_observed':int(v[-1,5]-v[0,5]),'video_frames_observed':int(v[-1,4]-v[0,4]),'OTR_first_last':[int(v[0,6]),int(v[-1,6])],'DMA_drop':0,'error_flags':0,'mode_observed_dwell_ms':dwell,'RUN_observed_ms':run_dwell[1],'STOP_observed_ms':run_dwell[0],'input':'User-confirmed floating analog input','scope':'One-hour system stability: ADC input clock/sample counter, real source selection, firmware and video, including observed mode and RUN/STOP operations. STOP time is not claimed as active record acquisition. No continuous DDR ring or calibrated analog reference is claimed.'}
 (folder/'soak_analysis.json').write_text(json.dumps(result,indent=2),encoding='utf-8');print(json.dumps(result,indent=2))

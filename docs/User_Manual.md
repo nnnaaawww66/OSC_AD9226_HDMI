@@ -103,3 +103,5 @@ HDMI全黑但串口可用：读取frame/lock，检查实际720p支持和线缆�
 ILA操作和位域见Debug_ILA.md。最终板级性能、时间条件和测试日志见Acceptance.json及Delivery_Report.md。
 
 下载前program.ps1会核对已封存bit/HDF/LTX/ELF/PS初始化及构建标记的SHA256，避免新旧输出混用。build.ps1在SDK与最新HDF一致后自动封存；缺少资格标记或任一文件变化时拒绝下载并指出文件名。
+
+正常program.ps1流程在ARM启动验证后自动运行当前10MSa/s的DDR/带宽/DDS自检，恢复真实ADC，再采集一份真实ADC的1Mi点MEM记录。这样首次进入MEM也不会把DDR自测的DDS当作实际输入。快速底层调试可显式使用program.ps1 -SkipSelftest，此时MEM/SEG仍由软件资格闸门控制。SEG首次进入后按实际触发逐段填满，段来源与时间戳可读取。

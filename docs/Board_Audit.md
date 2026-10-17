@@ -20,9 +20,9 @@ UART_COM: 用户要求只使用 JTAG，本轮不连接 UART；命令和自检通
 
 GATE_G0: LIMITED。逻辑连线和用户供电/CLK 陈述已登记；模块电路、前端范围及实测偏斜未完成仪器验收。
 
-NEXT_ACTION: 10MSa/s SIM 已实际运行；已验证 HDMI、DDR/DMA 自检、模式切换。继续真实信号/校准和长期稳定性验收。
+CURRENT_PROFILE: 正常启动10MSa/s真实ADC；四档10/25/50/65MSa/s均已通过数字时序与实板DDS/DMA/计数测试。用户确认当前模拟输入浮空；原始码值约2037～2044，无有效周期时显示N/A。
 
-BLOCKER: JTAG 与 USB HDMI 已闭环；仍缺已知信号源、ADC 模块传输系数、板级偏斜和模拟量仪器对照。
+QUALIFICATION_LIMIT: JTAG、USB HDMI、约199.94MB/s DDR压力源、完整1Mi点DMA、八段CRC/时间戳及三域ILA已闭环；已知外部信号、ADC模块传输系数、板级偏斜和模拟量仪器对照未作为已测项目。长期测试以Acceptance.json和原始soak.log为准。
 
 ## 核查结论
 

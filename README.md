@@ -4,10 +4,10 @@
 
 ## 使用入口
 
-1. 打开 `OSC_ad9226_hdmi.xpr`，顶层为 `scope_top`。原始空工程备份在 `backup/`。
+1. 在原工程目录打开 `OSC_ad9226_hdmi.xpr`，顶层为 `scope_top`。源码压缩包不含生成的 XPR/cache，解压到新的短路径后先运行 `build.ps1 -Recreate`。原始空工程备份在本机 `backup/`。
 2. `build.ps1` 在原有工程上构建；`build.ps1 -Recreate` 从 RTL、约束和导出的 BD Tcl 重建。
 3. `sim/run_sim.py` 运行固定种子的 XSim 回归；`tests/test_analysis.py` 编译实际 C 分析库并比对 NumPy。
-4. 完成正式时序门禁后，用 `program.ps1` 经 JTAG 易失下载。脚本只选择 XC7Z010 和 Cortex-A9 #0，不写 QSPI。
+4. 完成正式时序门禁后，用 `program.ps1` 经 JTAG 易失下载。脚本校验发布文件、选择 XC7Z010 和 Cortex-A9 #0、验证心跳、自动自检并采集真实 ADC 的 MEM 记录，不写 QSPI。
 5. UART 为板载 CH340E / PS UART0 / 115200 8N1。首先发送 `ver`、`status`，之后 `selftest`。
 
 ## 已实现的结构
@@ -33,4 +33,4 @@ DPX/EYE 的采集率、直方图更新率、UI 上传率和视频帧率是不同
 
 已修复 proc_sys_reset 辅助复位默认接高导致 AXI/采集永久复位的问题，加入显式常量连接、构建门禁及负向回归。`program.ps1` 会复位 PS、配置 PL、初始化 DDR、下载 ARM，并经 OCM 验证主循环启动；单独加载 bit 不会启动 ARM 程序。
 
-只接 JTAG 即可执行 `./jtag.ps1 ver`、`./jtag.ps1 status`、`./jtag.ps1 selftest`、`./jtag.ps1 measure`。实际 HDMI 抓图、自检和 1000 次硬件模式切换日志见 results/2026-10-17/hil；本次没有写 Flash。
+只接 JTAG 即可执行 `./jtag.ps1 ver`、`./jtag.ps1 status`、`./jtag.ps1 selftest`、`./jtag.ps1 measure`。实际四档采样、七模式 HDMI、DDR、ILA、1000 次切换、五次热重启及一小时观测见 `results/2026-10-17/prd_completion`。`tests/verify_release.py --require-soak` 检查发布文件、15 组 RTL 结果、正式时序、实板证据及完整长测，未完成长测不会产生 PASS；`tests/write_acceptance.py` 据此生成资格记录。本次没有写 Flash。
