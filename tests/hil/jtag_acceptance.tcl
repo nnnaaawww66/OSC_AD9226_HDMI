@@ -58,6 +58,7 @@ puts $out "PASS hardware Normal/Auto/Single/re-arm/STOP semantics"
 set last [mrd -value -address-space AP0 0x40000038]
 if {$last<=$first} {error "Video frame count failed to advance"}
 puts [check status errors=00000000]
+check {adc source real} source=ADC
 puts $out "PASS $cycles hardware mode transitions; video $first -> $last";close $out
 disconnect
 puts "JTAG_HIL_PASS cycles=$cycles"

@@ -18,6 +18,7 @@ if {[catch {
 connect -url tcp:127.0.0.1:3121
 targets -set -filter {name == "APU"}
 check ver product=Z7_SCOPE
+check {adc source real} source=ADC
 check status source=ADC
 foreach rate {10 25 50 65} {
  check "adc rate $rate" "rate=[expr {$rate*1000000}]"
