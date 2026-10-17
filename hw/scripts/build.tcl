@@ -3,6 +3,9 @@ cd $root
 set results $root/results/2026-10-17
 file delete -force $results/hardware_build.ok
 open_project $root/OSC_ad9226_hdmi.xpr
+foreach init_file [glob $root/hw/rtl/*.mem] {
+ if {[llength [get_files -quiet $init_file]]==0} {add_files -norecurse $init_file}
+}
 set_param general.maxThreads 4
 source $root/hw/scripts/setup_ila.tcl
 open_bd_design [get_files */scope_core.bd]
