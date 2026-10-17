@@ -24,7 +24,7 @@ for name,rtl in tests.items():
         for f in ['tmds_input.mem','tmds_expected.mem']:shutil.copy2(root/'tests/golden_vectors'/f,d/f)
     if name in ['axi','fallback','adc']:
         import shutil
-        for f in ['font.mem','screen.mem']:shutil.copy2(root/'hw/rtl'/f,d/f)
+        for f in ['font_hi.mem','font_mid.mem','font_lo.mem','screen.mem']:shutil.copy2(root/'hw/rtl'/f,d/f)
     commands=[['xvlog.bat','-sv',*extra,*[str(root/'hw/rtl'/f) for f in rtl],str(root/'sim'/f'tb_{name}.sv')],
               ['xelab.bat',f'tb_{name}',*(['glbl'] if extra else []),'-s',f'test_{name}','-debug','typical','-L','unisims_ver','-mt','4'],
               ['xsim.bat',f'test_{name}','-R']]

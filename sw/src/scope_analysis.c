@@ -18,8 +18,8 @@ uint32_t scope_crc32(const void *src, unsigned n) {
 void scope_measure(const uint16_t *d, unsigned n, double fs, scope_measurements *o) {
     unsigned i;
     uint64_t sum = 0, sumsq = 0;
-    double first = 0, last = 0, period_squares = 0;
-    int armed = 0;
+    double first = 0, last = 0, period_squares = 0, candidate = 0;
+    int armed = 0, pending = 0;
     memset(o, 0, sizeof(*o));
     o->min = 4095;
     if (!n)
@@ -37,15 +37,20 @@ void scope_measure(const uint16_t *d, unsigned n, double fs, scope_measurements 
     }
     o->mean = (double)sum / n;
     o->rms = sqrt((double)sumsq / n);
-    double level = (o->min + o->max) * 0.5, hyst = (o->max - o->min) * 0.02;
+    double level = (o->min + o->max) * 0.5, hyst = fmax(2, (o->max - o->min) * 0.08);
     if (o->max - o->min < 16 || o->overrange)
         return;
     for (i = 1; i < n; i++) {
         double prev = d[i - 1] & 4095, cur = d[i] & 4095;
-        if (cur < level - hyst)
-            armed = 1;
+        if (cur < level - hyst) {armed = 1;pending = 0;}
         if (armed && prev < level && cur >= level) {
-            double t = i - 1 + (level - prev) / (cur - prev);
+            candidate = i - 1 + (level - prev) / (cur - prev);
+            pending = 1;
+        }
+        // Confirm both Schmitt thresholds, retaining the interpolated midpoint.
+        // Quantized/noisy low-amplitude sines cannot re-trigger near zero.
+        if(armed && pending && cur>=level+hyst){
+            double t = candidate;
             if (!o->crossings)
                 first = t;
             if (o->crossings) {
@@ -55,6 +60,7 @@ void scope_measure(const uint16_t *d, unsigned n, double fs, scope_measurements 
             last = t;
             o->crossings++;
             armed = 0;
+            pending = 0;
         }
     }
     if (o->crossings >= 3 && last > first) {

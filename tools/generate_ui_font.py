@@ -1,4 +1,4 @@
-"""Build the native 16x24 ASCII/CJK atlas from the firmware's UTF-8 source.
+"""Build a native 24x24, four-coverage-level font for 1080p30.
 Requires Pillow and the Windows Microsoft YaHei + Consolas fonts.
 Generated atlas and mapping are checked in; no font dependency at runtime.
 """
@@ -11,18 +11,28 @@ source=(r/'sw/src/main.c').read_text(encoding='utf-8-sig')
 characters=sorted(set(c for c in source+''.join(boot) if ord(c)>127))
 assert len(characters)+128<=512
 mapping={c:i+128 for i,c in enumerate(characters)}
-font=ImageFont.truetype('C:/Windows/Fonts/msyh.ttc',18)
-ascii_font=ImageFont.truetype('C:/Windows/Fonts/consola.ttf',19)
+scale=4
+font=ImageFont.truetype('C:/Windows/Fonts/msyh.ttc',24*scale)
+ascii_font=ImageFont.truetype('C:/Windows/Fonts/consola.ttf',24*scale)
 rows=[]
-for index in range(len(characters)+128):
+for index in range(32,len(characters)+128):
     char=chr(index) if index<128 else characters[index-128]
-    im=Image.new('1',(16,24))
-    if index>=32:
-        temp=Image.new('1',(24,24));ImageDraw.Draw(temp).text((0,-2),char,font=ascii_font if index<128 else font,fill=1)
-        if index>=128:temp=temp.crop((0,0,18,24)).resize((16,24),Image.Resampling.NEAREST)
-        im.paste(temp,(0,0))
-    for y in range(24):rows.append(sum(1<<(15-x) for x in range(16) if im.getpixel((x,y))))
-(r/'hw/rtl/font.mem').write_text(''.join(f'{v:04x}\n' for v in rows))
+    chosen=ascii_font if index<128 else font
+    im=Image.new('L',(24*scale,24*scale))
+    # Render native-size outlines supersampled, then coverage-filter once.
+    # No binary threshold or nearest-neighbor enlargement.
+    if index<128:
+        advance=round(chosen.getlength('0'))
+        temp=Image.new('L',(advance,24*scale))
+        ImageDraw.Draw(temp).text((0,scale),char,font=chosen,fill=255)
+        im=Image.new('L',(24,24));im.paste(temp.resize((12,24),Image.Resampling.LANCZOS),(0,0))
+    else:
+        ImageDraw.Draw(im).text((0,-5*scale),char,font=chosen,fill=255)
+        im=im.resize((24,24),Image.Resampling.LANCZOS)
+    for y in range(24):rows.append(sum(min(3,(im.getpixel((x,y))*3+127)//255)<<(2*(23-x)) for x in range(24)))
+for plane,shift in [('hi',32),('mid',16),('lo',0)]:
+    (r/f'hw/rtl/font_{plane}.mem').write_text(''.join(f'{(v>>shift)&65535:04x}\n' for v in rows))
+assert len(rows)<=8192,'Font ROM budget exceeded'
 header='''#ifndef SCOPE_UI_FONT_H
 #define SCOPE_UI_FONT_H
 static unsigned ui_glyph(unsigned code){
@@ -34,9 +44,13 @@ static unsigned ui_glyph(unsigned code){
 #endif
 '''
 (r/'sw/include/scope_ui_font.h').write_text(header)
-screen=[32]*8192
+screen=[32]*16384
 for y,line in enumerate(boot):
-    for x,c in enumerate(line):screen[y*80+x]=ord(c) if ord(c)<128 else mapping[c]
+    x=0
+    for c in line:
+        code=ord(c) if ord(c)<128 else mapping[c]
+        screen[y*160+x]=code;x+=1
+        if ord(c)>=128:screen[y*160+x]=code|512;x+=1
 (r/'hw/rtl/screen.mem').write_text(''.join(f'{v:04x}\n' for v in screen))
-p=r/'hw/rtl/scope_display.v';s=p.read_text();s=re.sub(r'font\[0 : \d+\]',f'font[0 : {len(rows)-1}]',s);p.write_text(s)
-print(f'FONT_PASS {len(characters)} CJK/symbol glyphs +128 ASCII, {len(rows)} 16-bit rows')
+p=r/'hw/rtl/scope_display.v';s=p.read_text();s=re.sub(r'(font_(?:hi|mid|lo))\[0 : \d+\]',lambda m:f'{m[1]}[0 : {len(rows)-1}]',s);p.write_text(s)
+print(f'FONT_PASS {len(characters)} CJK/symbol glyphs +96 printable ASCII, {len(rows)} rows x48bit, 4 coverage levels')

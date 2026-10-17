@@ -524,7 +524,7 @@ module scope_peripheral
                         hist_addr <= (aw_reg - 20'h40000) >> 2;
                         hist_data <= wd_reg[7 : 0];
                     end
-                end else if (aw_reg >= 20'h80000 && aw_reg < 20'h82580) begin
+                end else if (aw_reg >= 20'h80000 && aw_reg < 20'h84b00) begin
                     if (display_pending)
                         s_axi_bresp <= 2;
                     else begin
@@ -647,6 +647,7 @@ module scope_peripheral
                         'h114:s_axi_rdata<=dac_snapshot[79:48];
                         'h118:s_axi_rdata<={16'b0,dac_snapshot[47:32]};
                         'h110:s_axi_rdata<=50000000;
+                        'hfc:s_axi_rdata<=VIDEO_VGA ? {16'd640,16'd480} : {16'd1920,16'd1080};
                         'h00:
                             s_axi_rdata <= 32'h53434f50;
                         'h04:

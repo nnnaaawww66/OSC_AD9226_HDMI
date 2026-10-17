@@ -51,7 +51,9 @@ static uint16_t record[SCOPE_N] __attribute__((aligned(64)));
 static uint32_t wave[SCOPE_W];
 static uint8_t hist[HIST_W * HIST_H];
 static float re[4096], im[4096], spectrum[2048];
-static uint16_t screen[2400];
+static uint16_t screen[4800];
+static uint16_t density_view[SCOPE_N];
+static unsigned density_reset_pending=1;
 static char command[160];
 static unsigned adc_calibrated, auto_scale, saved_calibrated, saved_auto_scale;
 static unsigned command_len, sequence, menu, selection;
@@ -232,7 +234,8 @@ static void text(unsigned row, unsigned col, const char *fmt, ...) {
     vsnprintf(str, sizeof(str), fmt, ap);
     va_end(ap);
     const unsigned char *p = (const unsigned char *)str;
-    while (*p && row < 30 && col < 80) {
+    col*=2; /* Public layout uses 16px logical columns; ASCII advances 8px. */
+    while (*p && row < 30 && col < 160) {
         unsigned ch = *p++;
         if (ch >= 0xe0 && ch < 0xf0 && p[0] && p[1]) {
             ch = ((ch & 15) << 12) | ((p[0] & 63) << 6) | (p[1] & 63);
@@ -241,7 +244,9 @@ static void text(unsigned row, unsigned col, const char *fmt, ...) {
             ch = ((ch & 31) << 6) | (p[0] & 63);
             p++;
         }
-        screen[row * 80 + col++] = ui_glyph(ch);
+        unsigned glyph=ui_glyph(ch);
+        screen[row * 160 + col++] = glyph;
+        if(ch>=128 && col<160)screen[row * 160 + col++] = glyph|512;
     }
 }
 static const char *state_name(unsigned s) {
@@ -303,10 +308,10 @@ static void axes(void) {
             snprintf(label, sizeof(label), "%.1f UI", value);
         else
             unit_text(label, sizeof(label), value, fft ? "Hz" : "s");
-        int centered = (80 + 96 * (int)j) / 16 - (int)strlen(label) / 2;
+        int centered = (80 + 96 * (int)j - (int)strlen(label)*4) / 16;
         unsigned col = centered < 0 ? 0 : (unsigned)centered;
-        if (col + strlen(label) > 80)
-            col = 80 - strlen(label);
+        if (col*16 + strlen(label)*8 > 1280)
+            col = (1280-strlen(label)*8)/16;
         text(26, col, "%s", label);
     }
     for (unsigned j = 0; j <= 10; j += 2) {
@@ -320,8 +325,7 @@ static void axes(void) {
         else if (fft)
             text(row, 0, "%4d", -(int)j * 12);
         else {
-            if (cfg.mode != EYE && cfg.mode != DPX)
-                code = cfg.zero + (code - 2047.5) / (1u << cfg.gain);
+            code = cfg.zero + (code - 2047.5) / (1u << cfg.gain);
             if (cfg.uv_per_code > 0)
                 text(row, 0, "%4.2f", (code - cfg.cal_zero) * cfg.uv_per_code / 1e6);
             else
@@ -329,22 +333,22 @@ static void axes(void) {
         }
     }
     text(2, 5, "%s", page_dac ? "%FS" : fft ? "dBFS" : cfg.uv_per_code > 0 ? "V" : "码值");
-    if (!page_dac && (cfg.mode == DPX || cfg.mode == EYE))
-        text(24, 8, "颜色强度:命中计数 1..255 / 衰减累积");
 }
 static void draw_ui(void) {
-    for (unsigned i = 0; i < 2400; i++)
+    for (unsigned i = 0; i < 4800; i++)
         screen[i] = ' ';
     unsigned state = scope_read(R_STATE), sim = displayed_source_sim();
     uint32_t err = scope_read(R_ERRORS);
     const char *names[] = {"示波器", "DPX", "EYE", "FFT", "滚动", "长存储", "分段"};
     text(0, 1, "Z7 LAB");
-    text(0, 12, "%s / %s", page_dac ? "DAC 信号发生器" : "ADC 数字示波器",
+    text(0, 9, "%s / %s", page_dac ? "DAC 信号发生器" : "ADC 数字示波器",
          page_dac ? "独立输出" : names[cfg.mode]);
     text(0, 67, "%s", page_dac ? (dac_on ? "输出开启" : "保持中点") : (cfg.run ? "RUN" : "STOP"));
+    unsigned video_format=scope_read(0xfc);
+    text(1,67,"%ux%u",video_format>>16,video_format&65535);
     text(1, 1, "%s", page_dac ? "DAC904  14 bit  50 MSa/s" : "AD9226  12 bit");
     if (page_dac)
-        text(1, 34, "配置预览 / 非输出实测");
+        text(1, 28, "配置预览 / 非输出实测");
     else
         text(1, 24, "%u MSa/s  %s  %s", cfg.rate / 1000000, sim ? "SIM 测试源" : "ADC 实际输入",
              state_name(state));
@@ -369,16 +373,15 @@ static void draw_ui(void) {
         text(4, 67, "%s", shapes[dac_shape]);
         text(6, 67, "实际设定频率");
         text(7, 67, "%.2f Hz", dac_frequency);
-        text(9, 67, "峰峰值 / FS");
-        text(10, 67, "%.2f %%", dac_amplitude * 100);
-        text(12, 67, "偏置 / FS");
-        text(13, 67, "%.2f %%", dac_offset * 100);
-        text(15, 67, "占空比");
-        text(16, 67, "%.2f %%", dac_duty * 100);
-        text(18, 67, "波形校验 CRC");
-        text(19, 67, "%08lx", (unsigned long)dac_crc);
-        text(21, 67, "ADC 独立运行");
-        text(22, 67, "%s %uM", modes[cfg.mode], cfg.rate / 1000000);
+        text(9, 67, "输出设定 / FS");
+        text(10, 67, "峰峰值 %.2f %%", dac_amplitude * 100);
+        text(11, 67, "偏置 %.2f %%", dac_offset * 100);
+        text(13, 67, "占空比");
+        text(14, 67, "%.2f %%", dac_duty * 100);
+        text(16, 67, "波形校验 CRC");
+        text(17, 67, "%08lx", (unsigned long)dac_crc);
+        text(19, 67, "ADC 独立运行");
+        text(20, 67, "%s %u MSa/s", names[cfg.mode], cfg.rate / 1000000);
         text(24, 67, "电压未校准");
         text(27, 1, "DAC 配置预览:横轴时间 / 纵轴满量程百分比 / 双周期");
         text(28, 1, "DAC 标称 5Vpp / 默认关闭 / ADC 模块标称量程 ±5V @50Ω");
@@ -406,18 +409,17 @@ static void draw_ui(void) {
         text(10, 67, "%.4f V", rms_v);
         text(11, 67, "均值 %.3f V", (measurement.mean - cfg.cal_zero) * cfg.uv_per_code / 1e6);
     }else text(10,67,"N/A");
-    text(12, 67, "触发设置");
-    text(13, 67, "%s / %s",
+    text(13, 67, "触发设置");
+    text(14, 67, "%s / %s",
          cfg.trig == 0   ? "自动"
          : cfg.trig == 1 ? "普通"
                          : "单次",
          cfg.edge ? "下降" : "上升");
-    text(14, 67, "电平 %u", cfg.level);
-    text(15, 67, "滞回 %u", cfg.hyst);
-    text(17, 67, "状态诊断");
-    text(18, 67, "溢出 %u", scope_read(R_OTR));
-    text(19, 67, "丢失 %u", scope_read(R_DROP));
-    text(20, 67, "故障 %08lx", (unsigned long)err);
+    text(15, 67, "电平 %u", cfg.level);
+    text(16, 67, "滞回 %u", cfg.hyst);
+    text(19, 67, "状态诊断");
+    text(20, 67, "溢出 %u  丢失 %u", scope_read(R_OTR),scope_read(R_DROP));
+    text(21, 67, "故障 %08lx", (unsigned long)err);
     if (cfg.mode == FFT) {
         text(22, 67, "%u点 %s", cfg.fft_n, cfg.hann ? "汉宁窗" : "矩形窗");
         text(23, 67, "峰 %.1fHz", fft_hz);
@@ -435,7 +437,7 @@ static void draw_ui(void) {
         text(27, 1, "FFT:频率 / dBFS | 分辨率 %.2f Hz | 有效采样 %.3f MSa/s",
              cfg.rate / (double)SCOPE_N, (double)cfg.rate * cfg.fft_n / SCOPE_N / 1e6);
     else if (cfg.mode == EYE)
-        text(27, 1, "EYE:横轴 0..2 UI | 1 UI = %.2f ns | 未启用时钟恢复", 1e9 / cfg.bitrate);
+        text(27, 1, "EYE: 0..2 UI | 1 UI = %.2f ns | 密度 1..255 | 未锁定参考", 1e9 / cfg.bitrate);
     else if (cfg.mode == ROLL)
         text(27, 1, "滚动:%.3f ms/列 | 丢失 %u | 采样编号 %llu", 1e8 / cfg.rate, roll_lost,
              (unsigned long long)roll_time);
@@ -462,8 +464,8 @@ static void draw_ui(void) {
                                "触发滞回"};
         // Two columns keep all 21 items visible at native 16x24 resolution.
         for (unsigned row = 4; row < 23; row++)
-            for (unsigned col = 8; col < 63; col++)
-                screen[row * 80 + col] = ' ';
+            for (unsigned col = 16; col < 126; col++)
+                screen[row * 160 + col] = ' ';
         text(4, 9, "设置菜单 / K1 选择 / K2 修改");
         for (unsigned j = 0; j < 21; j++)
             text(6 + j % 11, 9 + (j / 11) * 27, "%c %02u %s", j == selection ? '>' : ' ', j + 1,
@@ -504,7 +506,7 @@ static void upload(void) {
     if (cfg.mode == DPX || cfg.mode == EYE)
         for (i = 0; i < HIST_W * HIST_H; i++)
             scope_write(0x40000 + 4 * i, hist[i]);
-    for (i = 0; i < 2400; i++)
+    for (i = 0; i < 4800; i++)
         scope_write(0x80000 + 4 * i, screen[i]);
     scope_write(R_OWNER, 1 | (menu << 1) | (selection << 2) |
                              ((page_dac ? 0 : displayed_source_sim()) << 7) | (page_dac << 8));
@@ -606,24 +608,35 @@ static void process_record(void) {
     // Release only AFTER copying the frozen ring. All analysis uses this private snapshot.
     scope_write(R_RELEASE, 1);
     scope_measure(record, SCOPE_N, cfg.rate, &measurement);
-    if (auto_scale && cfg.mode == DSO && measurement.max - measurement.min >= 16) {
-        cfg.zero = (measurement.max + measurement.min) / 2.0;
-        cfg.gain = 0;
-        while (cfg.gain < 6 && (measurement.max - measurement.min) * (1u << (cfg.gain + 1)) < 3000)
-            cfg.gain++;
-        if (measurement.frequency_valid)
+    if (auto_scale && (cfg.mode == DSO || cfg.mode == DPX || cfg.mode == EYE) && measurement.max - measurement.min >= 16) {
+        unsigned target_gain=0;
+        double target_zero=(measurement.max + measurement.min) / 2.0;
+        while (target_gain < 6 && (measurement.max - measurement.min) * (1u << (target_gain + 1)) < 3000)
+            target_gain++;
+        if(target_gain!=cfg.gain || fabs(target_zero-cfg.zero)>16){
+            cfg.zero=target_zero;cfg.gain=target_gain;density_reset_pending=1;
+        }
+        if (cfg.mode==DSO && measurement.frequency_valid)
             cfg.span = (unsigned)fmin(16384, fmax(64, 3 * cfg.rate / measurement.frequency));
     }
     if (cfg.mode == FFT)
         fft_wave();
     else if (cfg.mode == DPX || cfg.mode == EYE) {
         if (wait_idle(0xb4, 1, 50)) {
+            if(density_reset_pending){
+                scope_write(0xb8,1);wait_idle(0xb4,1,50);
+                memset(hist,0,sizeof(hist));density_reset_pending=0;
+            }
             scope_write(0xb8, 2);
             wait_idle(0xb4, 1, 50);
             raster_fault = 0;
             uint32_t hit_before = scope_read(0xbc);
             scope_set_point_sink(pl_hist_point);
-            scope_density(hist, record, SCOPE_N, cfg.rate, cfg.bitrate, cfg.mode == EYE,
+            for(i=0;i<SCOPE_N;i++){
+                double v=2047.5+((record[i]&4095)-cfg.zero)*(1u<<cfg.gain);
+                density_view[i]=(uint16_t)fmax(0,fmin(4095,v));
+            }
+            scope_density(hist, density_view, SCOPE_N, cfg.rate, cfg.bitrate, cfg.mode == EYE,
                           first_index, 100000, &hits, &drops);
             scope_set_point_sink(0);
             wait_idle(0xd4, 1, 50);
@@ -999,6 +1012,33 @@ static void dispatch(char *line) {
             adc_calibrated, page_dac ? "DAC" : "ADC");
         return;
     }
+    /* Read-only snapshot diagnostics. STOP plus capture id/CRC make PC export
+       consistent without JTAG reads of dirty CPU cache lines. */
+    if(n>=2 && (!strcmp(a[0],"record") || !strcmp(a[0],"spectrum") || !strcmp(a[0],"density"))){
+        unsigned kind=!strcmp(a[0],"record")?0:!strcmp(a[0],"spectrum")?1:2;
+        if(cfg.run || !valid_record){reply(0,"code=STOP_WITH_VALID_RECORD_REQUIRED");return;}
+        if((kind==1 && cfg.mode!=FFT) || (kind==2 && cfg.mode!=DPX && cfg.mode!=EYE))goto bad;
+        if(n==2 && !strcmp(a[1],"info")){
+            if(kind==0)reply(1,"record=%u count=%u first=%llu source=%s rate=%u crc=%08lx",last_record,SCOPE_N,(unsigned long long)first_index,record_source_sim?"SIM":"ADC",cfg.rate,(unsigned long)scope_crc32(record,sizeof(record)));
+            else if(kind==1)reply(1,"record=%u count=%u source=%s effective_fs=%.6f bin_hz=%.6f peak_hz=%.6f peak_db=%.6f hann=%u",last_record,cfg.fft_n/2,record_source_sim?"SIM":"ADC",(double)cfg.rate*cfg.fft_n/SCOPE_N,(double)cfg.rate/SCOPE_N,fft_hz,fft_db,cfg.hann);
+            else reply(1,"record=%u width=%u height=%u mode=%s source=%s rate=%u bitrate=%u gain=%u zero=%.3f hits=%u drops=%u crc=%08lx",last_record,HIST_W,HIST_H,modes[cfg.mode],record_source_sim?"SIM":"ADC",cfg.rate,cfg.bitrate,cfg.gain,cfg.zero,hits,drops,(unsigned long)scope_crc32(hist,sizeof(hist)));
+            return;
+        }
+        if(n==4 && !strcmp(a[1],"read")){
+            double start,count;
+            unsigned length=kind==0?SCOPE_N:kind==1?cfg.fft_n/2:HIST_W*HIST_H;
+            unsigned limit=kind==0?80:kind==1?32:128;
+            if(!number(a[2],&start)||!number(a[3],&count)||start<0||start!=(unsigned)start||count<1||count>limit||count!=(unsigned)count||start+count>length)goto bad;
+            char data[392];unsigned used=0;
+            for(unsigned j=0;j<(unsigned)count;j++){
+                unsigned at=(unsigned)start+j;
+                if(kind==1)used+=(unsigned)snprintf(data+used,sizeof(data)-used,"%.3f,",spectrum[at]);
+                else used+=(unsigned)snprintf(data+used,sizeof(data)-used,kind==0?"%04x":"%02x",kind==0?record[at]:hist[at]);
+            }
+            reply(1,"record=%u offset=%u count=%u data=%s",last_record,(unsigned)start,(unsigned)count,data);return;
+        }
+        goto bad;
+    }
     if (n == 3 && !strcmp(a[0], "view")) {
         double v;
         if (!number(a[2], &v))
@@ -1021,6 +1061,7 @@ static void dispatch(char *line) {
         } else
             goto bad;
         dirty = 1;
+        if(!strcmp(a[1],"gain") || !strcmp(a[1],"zero"))density_reset_pending=1;
         reply(1, "view_%s=%.3f", a[1], v);
         return;
     }
@@ -1038,6 +1079,7 @@ static void dispatch(char *line) {
             cfg.span = (unsigned)fmin(16384, fmax(64, span));
         }
         dirty = 1;
+        density_reset_pending=1;
         reply(1, "autoscale span=%u gain=%u zero=%.3f", cfg.span, cfg.gain, cfg.zero);
         return;
     }
@@ -1058,9 +1100,9 @@ static void dispatch(char *line) {
     if (!strcmp(a[0], "ver")) {
         reply(
             1,
-            "product=Z7_SCOPE fw=4.0 rtl=%08lx source_sha=%08lx fw_sha=%08lx id=%08lx SDK=2018.3 qualification=BENCH_PENDING",
+            "product=Z7_SCOPE fw=4.0 rtl=%08lx source_sha=%08lx fw_sha=%08lx id=%08lx SDK=2018.3 qualification=ANALOG_UNCALIBRATED video=%ux%u fps=%u",
             (unsigned long)scope_read(R_VER), (unsigned long)scope_read(0xf4),
-            (unsigned long)SCOPE_FW_SHA, (unsigned long)scope_read(R_ID));
+            (unsigned long)SCOPE_FW_SHA, (unsigned long)scope_read(R_ID),scope_read(0xfc)>>16,scope_read(0xfc)&65535,(scope_read(0xfc)>>16)==1920?30:60);
         return;
     }
     if (n == 2 && !strcmp(a[0], "errors") && !strcmp(a[1], "clear")) {
@@ -1253,6 +1295,7 @@ static void dispatch(char *line) {
         if (z < 1000000 || z > 5000000)
             goto bad;
         cfg.bitrate = z;
+        density_reset_pending=1;
         memset(hist, 0, sizeof(hist));
         dirty = 1;
         reply(1, "bitrate=%u lock=UNLOCKED eye_width=N/A jitter=N/A", z);
