@@ -134,6 +134,7 @@ xilinx.com:ip:axi_dma:7.1\
 xilinx.com:ip:xlconcat:2.1\
 xilinx.com:ip:processing_system7:5.5\
 xilinx.com:ip:proc_sys_reset:5.0\
+xilinx.com:ip:xlconstant:1.1\
 "
 
    set list_ips_missing ""
@@ -872,6 +873,13 @@ proc create_root_design { parentCell } {
    CONFIG.C_AUX_RESET_HIGH {1} \
  ] $reset_0
 
+  # Create instance: reset_zero, and set properties
+  set reset_zero [ create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 reset_zero ]
+  set_property -dict [ list \
+   CONFIG.CONST_VAL {0} \
+   CONFIG.CONST_WIDTH {1} \
+ ] $reset_zero
+
   # Create instance: scope_0, and set properties
   set block_name scope_peripheral
   set block_cell_name scope_0
@@ -907,6 +915,7 @@ proc create_root_design { parentCell } {
   connect_bd_net -net key_n_0_1 [get_bd_ports key_n] [get_bd_pins scope_0/key_n]
   connect_bd_net -net pixel_clk_0_1 [get_bd_ports pixel_clk] [get_bd_pins scope_0/pixel_clk]
   connect_bd_net -net reset_0_peripheral_aresetn [get_bd_pins axi_dma_0/axi_resetn] [get_bd_pins ctrl_bus/ARESETN] [get_bd_pins ctrl_bus/M00_ARESETN] [get_bd_pins ctrl_bus/M01_ARESETN] [get_bd_pins ctrl_bus/S00_ARESETN] [get_bd_pins hp_bus/ARESETN] [get_bd_pins hp_bus/M00_ARESETN] [get_bd_pins hp_bus/S00_ARESETN] [get_bd_pins reset_0/peripheral_aresetn] [get_bd_pins scope_0/s_axi_aresetn]
+  connect_bd_net -net reset_zero_dout [get_bd_pins reset_0/aux_reset_in] [get_bd_pins reset_0/mb_debug_sys_rst] [get_bd_pins reset_zero/dout]
   connect_bd_net -net scope_0_de [get_bd_ports de] [get_bd_pins scope_0/de]
   connect_bd_net -net scope_0_hs [get_bd_ports hs] [get_bd_pins scope_0/hs]
   connect_bd_net -net scope_0_irq [get_bd_pins irq_concat/In0] [get_bd_pins scope_0/irq]

@@ -4,8 +4,11 @@
 #include "xuartps_hw.h"
 #include "xuartps.h"
 #include <stdint.h>
+#include "scope_debug.h"
 #define REG(a) (*(volatile unsigned *)(0x40000000u + (a)))
 int main(void) {
+    debug_init();
+    DEBUG_MAILBOX->stage = 0xd100;
     static XUartPs uart;
     XUartPs_Config *uc = XUartPs_LookupConfig(XPAR_XUARTPS_0_DEVICE_ID);
     if (!uc || XUartPs_CfgInitialize(&uart, uc, uc->BaseAddress) != XST_SUCCESS ||
@@ -17,6 +20,7 @@ int main(void) {
     REG(100) = 0;
     REG(8) = cfg;
     for (;;) {
+        DEBUG_MAILBOX->heartbeat++;
         unsigned e = REG(60);
         if ((e >> 16) != key) {
             key = e >> 16;

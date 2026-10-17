@@ -3,6 +3,11 @@ cd $root
 set results $root/results/2026-10-17
 open_project $root/OSC_ad9226_hdmi.xpr
 set_param general.maxThreads 4
+open_bd_design [get_files */scope_core.bd]
+source $root/hw/scripts/assert_bd_resets.tcl
+validate_bd_design
+save_bd_design
+generate_target all [get_files */scope_core.bd]
 set code_sha 00000000
 if {![catch {exec git -C $root rev-parse --short=8 HEAD} git_sha]} {set code_sha [string trim $git_sha]}
 set_property verilog_define [list "SCOPE_BUILD_SHA=32'h$code_sha"] [get_filesets sources_1]
@@ -34,6 +39,8 @@ set fatal [get_drc_violations -quiet -filter {SEVERITY == Error}]
 if {[llength $fatal]} {error "DRC gate failed: $fatal"}
 write_checkpoint -force $results/scope_routed.dcp
 write_bitstream -force $results/scope_top.bit
+# Keep the GUI's normal Program Device path identical to the qualified release.
+file copy -force $results/scope_top.bit [get_property DIRECTORY [get_runs impl_1]]/scope_top.bit
 write_hwdef -force -file $results/scope_design.hwdef
 write_sysdef -force -hwdef $results/scope_design.hwdef -bitfile $results/scope_top.bit -file $results/scope_top.hdf
 close_project

@@ -9,6 +9,7 @@
 #include "sleep.h"
 #include "scope_analysis.h"
 #include "scope_hw.h"
+#include "scope_debug.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -64,14 +65,27 @@ static void dma_write(unsigned off, uint32_t value) {
     __asm__ volatile("dmb sy" ::: "memory");
 #endif
 }
+static unsigned debug_reply_active;
 static void reply(int ok, const char *fmt, ...) {
+    char payload[512], line[560];
     va_list ap;
-    printf("%s seq=%u ", ok ? "OK" : "ERR", ++sequence);
     va_start(ap, fmt);
-    vprintf(fmt, ap);
+    vsnprintf(payload, sizeof(payload), fmt, ap);
     va_end(ap);
-    printf("\r\n");
+    snprintf(line, sizeof(line), "%s seq=%u %s\r\n", ok ? "OK" : "ERR", ++sequence, payload);
+    printf("%s", line);
+    if (debug_reply_active) {
+        volatile scope_debug_mailbox *m = DEBUG_MAILBOX;
+        unsigned n = m->length;
+        for (unsigned i = 0; line[i] && n + 1 < sizeof(m->response); i++)
+            m->response[n++] = line[i];
+        m->response[n] = 0;
+        m->length = n;
+        if (!ok)
+            m->flags |= 1;
+    }
 }
+
 static int wait_idle(unsigned reg, unsigned mask, unsigned timeout) {
     uint64_t t = now();
     while (scope_read(reg) & mask) {
@@ -189,107 +203,104 @@ static void draw_ui(void) {
                                       ? segment_sim[cfg.segment]
                                       : (valid_record ? record_source_sim : cfg.sim));
     uint32_t err = scope_read(R_ERRORS);
-    text(1, 3, "Z7 SCOPE  |  %-4s  |  %s  |  %s  |  %u MSa/s  |  %s", modes[cfg.mode],
-         cfg.run ? "RUN " : "STOP", visible_sim ? "SIM " : "ADC ", cfg.rate / 1000000,
-         state_name(s));
-    text(2, 3, "%s   TRIG #%u   OTR %u   DROP %u   FRAME %u",
-         s & 16 ? "AUTO TIMEOUT" : "EDGE TRIGGER", scope_read(R_TRIG), scope_read(R_OTR),
-         scope_read(R_DROP), scope_read(R_FRAME));
-    text(4, 3, "CH1  12-bit / %s    %s", visible_sim ? "SIM TEST SOURCE" : "AD9226",
-         cfg.uv_per_code > 0 ? "VOLTAGE CALIBRATED" : "ADC CODE SCALE / VOLTAGE N/A");
-    text(5, 126, "MEASUREMENTS / CH1");
-    text(6, 126,
-         (cfg.mode == MEM || cfg.mode == SEG) ? "SOURCE: PLAYBACK WINDOW"
-                                              : "SOURCE: LAST 16K RECORD");
+    text(0, 3, "Z7 SCOPE");
+    for (unsigned i = 0; i < 7; i++)
+        text(1, 32 + i * 12, "%s", modes[i]);
+    text(1, 130, "%s / %s", cfg.run ? "RUN" : "STOP", state_name(s));
+    text(2, 130, "%s   %u MSa/s", visible_sim ? "SIM" : "ADC", cfg.rate / 1000000);
+    text(2, 31, "CH1 / 12-BIT    %s    TRIG #%u    VIDEO %u",
+         s & 16 ? "AUTO TIMEOUT" : "EDGE TRIGGER", scope_read(R_TRIG), scope_read(R_FRAME));
+    text(4, 3, "CH1   %s  |  %s", visible_sim ? "INTERNAL TEST" : "AD9226 INPUT",
+         cfg.uv_per_code > 0 ? "VOLTAGE CALIBRATED" : "ADC CODE / VOLTAGE UNCALIBRATED");
+    text(5, 127, "FREQUENCY");
+    if (valid_record && measurement.frequency_valid) {
+        double f = measurement.frequency;
+        if (f >= 1e6)
+            text(7, 127, "%.3f MHz", f / 1e6);
+        else if (f >= 1000)
+            text(7, 127, "%.3f kHz", f / 1000);
+        else
+            text(7, 127, "%.2f Hz", f);
+    } else
+        text(7, 127, "N/A");
+    text(10, 127, "%s",
+         !valid_record                 ? "WAITING FOR CAPTURE"
+         : measurement.overrange       ? "OVERRANGE / INVALID"
+         : measurement.frequency_valid ? "MEASURED FROM CAPTURE"
+                                       : "NO VALID PERIOD");
+    text(13, 127, "PEAK TO PEAK");
+    text(20, 127, "RMS / VERTICAL");
+    if (valid_record && cfg.uv_per_code > 0 && !measurement.overrange) {
+        text(15, 127, "%.4f V", (measurement.max - measurement.min) * cfg.uv_per_code / 1e6);
+        double rms = sqrt(fmax(0, measurement.rms * measurement.rms -
+                                      2 * cfg.zero * measurement.mean + cfg.zero * cfg.zero)) *
+                     cfg.uv_per_code / 1e6;
+        text(22, 127, "%.4f V", rms);
+    } else {
+        text(15, 127, "N/A");
+        text(22, 127, "N/A");
+    }
     if (valid_record) {
-        text(8, 126, "MIN / MAX  %u / %u", measurement.min, measurement.max);
-        text(10, 126, "PkPk       %u code", measurement.max - measurement.min);
-        if (cfg.uv_per_code > 0 && !measurement.overrange) {
-            text(12, 126, "Vpp        %.4f V",
-                 (measurement.max - measurement.min) * cfg.uv_per_code / 1e6);
-            double rms = sqrt(fmax(0, measurement.rms * measurement.rms -
-                                          2 * cfg.zero * measurement.mean + cfg.zero * cfg.zero)) *
-                         cfg.uv_per_code / 1e6;
-            text(14, 126, "RMS        %.4f V", rms);
-        } else {
-            text(12, 126, "Vpp        N/A");
-            text(14, 126, "RMS        N/A");
-            text(15, 126, measurement.overrange ? "REASON: OVERRANGE" : "REASON: NO CALIBRATION");
-        }
-        if (measurement.frequency_valid)
-            text(17, 126, "FREQ       %.2f Hz", measurement.frequency);
-        else {
-            text(17, 126, "FREQ       N/A");
-            text(18, 126, "NO VALID PERIOD / OTR");
-        }
+        text(18, 127, "%u code / MIN %u MAX %u", measurement.max - measurement.min, measurement.min,
+             measurement.max);
+        text(25, 127, "%s / GAIN x%u", cfg.uv_per_code > 0 ? "CALIBRATED" : "CALIBRATION REQUIRED",
+             1u << cfg.gain);
     } else {
-        text(8, 126, "WAITING FOR RECORD");
-        text(12, 126, "Vpp / RMS / FREQ: N/A");
+        text(18, 127, "NO VALID RECORD");
+        text(25, 127, "%s", visible_sim ? "INTERNAL TEST ACTIVE" : "CHECK SIGNAL / TRIGGER");
     }
-    text(20, 126, "TRIG %s / %s",
-         cfg.trig == 0   ? "AUTO"
-         : cfg.trig == 1 ? "NORMAL"
-                         : "SINGLE",
-         cfg.edge ? "FALL" : "RISE");
-    text(21, 126, "LEVEL %u / HYST %u", cfg.level, cfg.hyst);
+    text(28, 127, "TRIGGER / %s", cfg.trig == 0 ? "AUTO" : cfg.trig == 1 ? "NORMAL" : "SINGLE");
+    text(29, 127, "%s  LEVEL %u  HYST %u", cfg.edge ? "FALL" : "RISE", cfg.level, cfg.hyst);
     if (cfg.mode == EYE) {
-        text(23, 126, "2UI / %u bit/s", cfg.bitrate);
-        text(24, 126, "REF UNLOCKED / NO CDR");
-        text(25, 126, "EYE WIDTH/JITTER: N/A");
+        text(31, 127, "2 UI / %.2f Mb/s", cfg.bitrate / 1e6);
+        text(32, 127, "NO CDR / REFERENCE UNLOCKED");
+        text(33, 127, "EYE WIDTH / JITTER: N/A");
     } else if (cfg.mode == FFT) {
-        text(23, 126, "FFT %u / %s", cfg.fft_n, cfg.hann ? "HANN" : "RECT");
-        text(24, 126, "PEAK %.2f Hz", fft_hz);
-        text(25, 126, "LEVEL %.2f dBFS", fft_db);
+        text(31, 127, "FFT %u / %s", cfg.fft_n, cfg.hann ? "HANN" : "RECT");
+        text(32, 127, "PEAK %.1f Hz", fft_hz);
+        text(33, 127, "%.2f dBFS / 0..-120", fft_db);
     } else {
-        text(23, 126, "RECORD 16384 samples");
-        text(24, 126, "DDR %s", mem_gate ? "MEMTEST PASSED" : "LOCKED / RUN SELFTEST");
-        text(25, 126, "MEM %s / SEG %u", mem_valid ? "READY" : "EMPTY", seg_count);
+        text(31, 127, "RECORD 16K / PRETRIG 8K");
+        text(32, 127, "DDR %s", mem_gate ? "SELFTEST PASSED" : "SELFTEST REQUIRED");
+        text(33, 127, "MEM %s / SEG %u OF 8", mem_valid ? "READY" : "EMPTY", seg_count);
     }
-    text(28, 126, "DENSITY HITS %u", hits);
-    text(29, 126, "DENSITY DROP %u", drops);
-    text(30, 126, "CAP %u / HIST %u", captures_processed, hist_updates);
-    text(31, 126, "UI %.1f ms / %.1f Hz", render_ms, frame_hz);
-    text(33, 126, "FIFO HWM %u / 4096", scope_read(R_HWM));
-    text(34, 126, "DEAD %u samples", scope_read(R_DEAD));
-    text(36, 126, "RTL v%08lx", (unsigned long)scope_read(R_VER));
-    text(37, 126, "T #%lu:%08lx", (unsigned long)scope_read(R_TIME + 4),
-         (unsigned long)scope_read(R_TIME));
-    if (err)
-        text(38, 3, "FAULT %08lx: %s %s %s", (unsigned long)err, err & 1 ? "FIFO_OVF" : "",
-             err & 2 ? "OVERRANGE" : "", err & 4 ? "HIST_DROP" : "");
-    text(40, 3, "SPAN %.3f us / %.3f us/div   %s   CAPTURE DEADTIME COUNTED",
-         cfg.span * 1e6 / cfg.rate, cfg.span * 1e5 / cfg.rate,
-         cfg.uv_per_code > 0 ? "VOLT CAL OK" : "UNCALIBRATED");
-    text(42, 3, "Y GAIN x%u / %s / ENCODING %s / HYST %u", 1u << cfg.gain,
-         cfg.uv_per_code > 0 ? "VOLT SCALE CONFIGURED" : "V/DIV N/A",
-         cfg.encoding ? "TWOS" : "OFFSET", cfg.hyst);
-
+    text(35, 127, "OTR %u   DROP %u", scope_read(R_OTR), scope_read(R_DROP));
+    text(36, 127, "%s / ENCODING %s", err ? "FAULT / SEE STATUS" : "SYSTEM READY",
+         cfg.encoding ? "TWOS" : "OFFSET");
+    text(37, 127, "FRAME %u / UI %.1f Hz", scope_read(R_FRAME), frame_hz);
+    text(40, 3, "%.3f us/div    SPAN %.3f us    16384 SAMPLES    GAIN x%u    %s",
+         cfg.span * 1e5 / cfg.rate, cfg.span * 1e6 / cfg.rate, 1u << cfg.gain,
+         cfg.uv_per_code > 0 ? "VOLT SCALE CALIBRATED" : "V/DIV N/A - NOT CALIBRATED");
     if (cfg.mode == FFT)
-        text(40, 3, "FFT X: 0..%.1f Hz  /  Y: 0..-120 dBFS  /  BIN: %.2f Hz  /  BOXCAR DECIMATION",
+        text(40, 3, "FFT X 0..%.1f Hz   BIN %.2f Hz   Y 0..-120 dBFS   BOXCAR DECIMATION",
              cfg.rate * cfg.fft_n / (2.0 * SCOPE_N), cfg.rate / (double)SCOPE_N);
     if (cfg.mode == EYE)
-        text(40, 3,
-             "EYE X: 0..2 UI = %.3f us  /  Y: ADC CODE  /  NO REFERENCE LOCK: WIDTH AND JITTER N/A",
+        text(40, 3, "EYE 0..2 UI / %.3f us   160x90 DENSITY   WIDTH/JITTER N/A - NO REFERENCE LOCK",
              2e6 / cfg.bitrate);
     if (cfg.mode == ROLL)
-        text(40, 3, "ROLL: %.3f ms/column / %.3f s total  /  MISSED COLUMNS %u / TIMESTAMP %llu",
+        text(40, 3, "ROLL %.3f ms/COLUMN   %.3f s TOTAL   MISSED %u   SAMPLE #%llu",
              100000.0 * 1000 / cfg.rate, 100000.0 * SCOPE_W / cfg.rate, roll_lost,
              (unsigned long long)roll_time);
-    if (cfg.mode == DPX)
-        text(39, 3, "DPX 160x90 PL RMW / SATURATING 8-bit / 6x SCALE / DECAY: 1 COUNT PER UPDATE");
     if (cfg.mode == MEM && mem_valid)
-        text(40, 3, "MEM 1Mi samples / OFFSET %u / FIRST SAMPLE #%llu / SOURCE %s", cfg.offset,
+        text(40, 3, "MEM 1Mi SAMPLES   OFFSET %u   FIRST #%llu   SOURCE %s", cfg.offset,
              (unsigned long long)mem_first_index, mem_source_sim ? "SIM" : "ADC");
     if (cfg.mode == SEG && seg_count)
-        text(40, 3, "SEG %u / %u samples / FIRST SAMPLE #%llu / SOURCE %s", cfg.segment,
+        text(40, 3, "SEG %u / %u SAMPLES   FIRST #%llu   SOURCE %s", cfg.segment,
              segment_len[cfg.segment], (unsigned long long)segment_time[cfg.segment],
              segment_sim[cfg.segment] ? "SIM" : "ADC");
-    if (!err && valid_record && measurement.max - measurement.min < 16)
-        text(38, 3, "NO_SIGNAL / FLAT INPUT: FREQUENCY N/A");
-    text(41, 3, "%s", message);
+    if (err)
+        text(41, 3, "FAULT %08lx  %s %s %s", (unsigned long)err, err & 1 ? "FIFO_OVF" : "",
+             err & 2 ? "OVERRANGE" : "", err & 4 ? "HIST_DROP" : "");
+    else if (valid_record && measurement.max - measurement.min < 16)
+        text(41, 3, "NO SIGNAL / FLAT INPUT - FREQUENCY IS NOT VALID");
+    else
+        text(41, 3, "%s", message);
+    text(42, 3, "CAP %u  HIST %u  HITS %u  LOST %u  FIFO %u/4096  DEAD %u  UI %.1fms  RTL %08lx",
+         captures_processed, hist_updates, hits, drops, scope_read(R_HWM), scope_read(R_DEAD),
+         render_ms, (unsigned long)scope_read(0xf4));
     text(
         43, 3,
-        "K1 short/long: next/prev  K2 short/long: edit/back  BOTH short: menu  BOTH long: RUN/STOP  UART 115200 8N1");
+        "K1: SELECT   K2: CHANGE   HOLD: REVERSE/BACK   BOTH: MENU   BOTH HOLD: RUN/STOP   DEBUG: JTAG / UART 115200");
     if (menu) {
         text(5, 5, "MENU / K1 SELECT / K2 CHANGE");
         const char *items[] = {"MODE",
@@ -956,6 +967,25 @@ bad:
     reply(0, "code=INVALID_COMMAND_OR_ARGUMENT use=help");
 }
 
+static void poll_debug(void) {
+    volatile scope_debug_mailbox *m = DEBUG_MAILBOX;
+    uint32_t req = m->request;
+    if (req == m->done)
+        return;
+    debug_barrier();
+    char cmd[160];
+    for (unsigned i = 0; i < 159; i++)
+        cmd[i] = m->command[i];
+    cmd[159] = 0;
+    m->length = 0;
+    m->flags = 0;
+    m->response[0] = 0;
+    debug_reply_active = 1;
+    dispatch(cmd);
+    debug_reply_active = 0;
+    debug_barrier();
+    m->done = req;
+}
 static void process_roll(void) {
     if (cfg.mode != ROLL || !cfg.run)
         return;
@@ -1012,21 +1042,34 @@ static int uart_init(void) {
 int main(void) {
     Xil_ICacheEnable();
     Xil_DCacheEnable();
+    debug_init();
     if (!uart_init())
         return 1;
     printf("\r\nZ7_SCOPE BOOT fw=3.0 SDK=2018.3 DDR DMA reserved 0x10000000..0x105FFFFF\r\n");
+    DEBUG_MAILBOX->stage = 2;
     if (scope_read(R_ID) != 0x53434f50) {
         printf("ERR code=PL_ID_MISMATCH\r\n");
         return 1;
     }
+    DEBUG_MAILBOX->stage = 3;
     if (!interrupts_init())
         printf("ERR code=GIC_INIT\r\n");
+    DEBUG_MAILBOX->stage = 4;
+    uint64_t startup = now();
     while (scope_read(0x80) != 0) {
+        if (elapsed_ms(startup) > 100) {
+            DEBUG_MAILBOX->stage = 0xe004;
+            break;
+        }
     }
+    DEBUG_MAILBOX->stage = 5;
     scope_write(R_OWNER, 1);
     apply();
     last_render = now();
+    DEBUG_MAILBOX->stage = 6;
     for (;;) {
+        DEBUG_MAILBOX->heartbeat++;
+        poll_debug();
         poll_uart();
         handle_keys();
         process_roll();

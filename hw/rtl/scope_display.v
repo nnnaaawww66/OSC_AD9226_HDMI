@@ -108,11 +108,22 @@ module scope_display
     reg [19 : 0] hx_product = 0, hy_product = 0;
     reg [9 : 0] wx_address = 0;
     reg [12 : 0] char_address = 0;
+    reg [3 : 0] glyph_row0 = 0;
+    reg [2 : 0] glyph_bit0 = 0;
+    wire title_glyph = x >= 24 && x < 184 && y >= 12 && y < 44;
+    wire metric_glyph = x >= 1016 && x < 1256 &&
+                        ((y >= 112 && y < 144) || (y >= 240 && y < 272) || (y >= 352 && y < 384));
+    wire [5 : 0] metric_row = y < 200 ? 6'd7 : (y < 312 ? 6'd15 : 6'd22);
+    wire [11 : 0] metric_y = y < 200 ? y - 112 : (y < 312 ? y - 240 : y - 352);
     always @(posedge pixel_clk) begin
         x0 <= x;
         y0 <= y;
         wx_address <= wx;
-        char_address <= (y >> 4) * 160 + (x >> 3);
+        char_address <= title_glyph    ? 13'd3 + ((x - 24) >> 4)
+                        : metric_glyph ? metric_row * 160 + 127 + ((x - 1016) >> 4)
+                                       : (y >> 4) * 160 + (x >> 3);
+        glyph_row0 <= title_glyph ? ((y - 12) >> 1) : metric_glyph ? (metric_y >> 1) : y[3 : 0];
+        glyph_bit0 <= title_glyph ? ((x - 24) >> 1) : metric_glyph ? ((x - 1016) >> 1) : x[2 : 0];
         hx_product <= plot ? (x - 20) * 20'd683 : 20'd0;
         hy_product <= plot ? (y - 70) * 20'd683 : 20'd0;
     end
@@ -159,8 +170,8 @@ module scope_display
         wq <= wave[{bank_pix, wx_address}];
         hq <= histogram[{bank_pix, hist_read_index}];
         cq <= characters[bank_pix * 8192 + char_address];
-        row1 <= y0[3 : 0];
-        bit1 <= x0[2 : 0];
+        row1 <= glyph_row0;
+        bit1 <= glyph_bit0;
         fq <= font[{cq[6 : 0], row1}] |
               ((VIDEO_VGA && row1 < 15) ? font[{cq[6 : 0], row1 + 4'd1}] : 8'd0);
         bit2 <= bit1;
@@ -186,31 +197,83 @@ module scope_display
                          : h3 < 64  ? {8'd0, 8'hc0, h3 << 2}
                          : h3 < 128 ? {h3 << 1, 8'hff, 8'd0}
                                     : {8'hff, 8'hff - (h3 << 1), 8'd0};
+    wire header_tab = y3 >= 8 && y3 < 34 && x3 >= 240 && x3 < 912;
+    wire selected_tab = (meta_pix[2 : 0] == 0 && x3 >= 240 && x3 < 328) ||
+                        (meta_pix[2 : 0] == 1 && x3 >= 336 && x3 < 424) ||
+                        (meta_pix[2 : 0] == 2 && x3 >= 432 && x3 < 520) ||
+                        (meta_pix[2 : 0] == 3 && x3 >= 528 && x3 < 616) ||
+                        (meta_pix[2 : 0] == 4 && x3 >= 624 && x3 < 712) ||
+                        (meta_pix[2 : 0] == 5 && x3 >= 720 && x3 < 808) ||
+                        (meta_pix[2 : 0] == 6 && x3 >= 816 && x3 < 904);
+    wire card = x3 >= 1008 && x3 < 1264 &&
+                ((y3 >= 80 && y3 < 192) || (y3 >= 200 && y3 < 304) || (y3 >= 312 && y3 < 416) ||
+                 (y3 >= 432 && y3 < 610));
+    wire card_edge = card && (x3 == 1008 || x3 == 1263 || y3 == 80 || y3 == 191 || y3 == 200 ||
+                              y3 == 303 || y3 == 312 || y3 == 415 || y3 == 432 || y3 == 609);
+    wire big_value =
+             x3 >= 1016 && x3 < 1256 &&
+             ((y3 >= 112 && y3 < 144) || (y3 >= 240 && y3 < 272) || (y3 >= 352 && y3 < 384));
+    wire soft_trace = in_plot && meta_pix[31] && w3[19 : 10] >= 70 && y3 + 1 >= w3[9 : 0] &&
+                      y3 <= w3[19 : 10] + 1;
     always @(posedge pixel_clk) begin
         hs_q <= hsp[3];
         vs_q <= vsp[3];
         de_q <= dep[3];
-        rgb <= 24'h080e18;
-        if (y3 < 60 || y3 >= 630 || x3 >= 1000)
-            rgb <= 24'h111f30;
+        rgb <= 24'h0b111b;
+        if (y3 < 60 || y3 >= 630)
+            rgb <= 24'h111d2b;
         if (in_plot) begin
-            rgb <= grid ? 24'h21344a : 24'h080e18;
+            rgb <= grid ? 24'h202e3e : 24'h090f18;
+            if ((x3 == 500 || y3 == 340) && (x3[3 : 0] < 8 && y3[3 : 0] < 8))
+                rgb <= 24'h415067;
             if ((meta_pix[2 : 0] == 1 || meta_pix[2 : 0] == 2) && meta_pix[31] && h3 != 0)
                 rgb <= heat;
-            else if (trace)
-                rgb <= meta_pix[2 : 0] == 3 ? 24'hb69bff : 24'h31e6bc;
-            if (x3 == 500 && meta_pix[2 : 0] != 3)
-                rgb <= 24'h85532d;
+            else begin
+                if (soft_trace)
+                    rgb <= 24'h6b522c;
+                if (trace)
+                    rgb <= meta_pix[2 : 0] == 3 ? 24'hb59aff : 24'hffce73;
+            end
+            if (x3 == 500 && y3 < 80 && meta_pix[2 : 0] != 3)
+                rgb <= 24'hf2a65a;
         end
-        if (y3 == 60 || x3 == 990 || y3 == 620)
-            rgb <= 24'h29445f;
-        if (meta_pix[9] && x3 >= 32 && x3 < 340 && y3 >= 76 && y3 < 464) begin
-            rgb <= 24'h15293d;
+        if (card)
+            rgb <= card_edge ? 24'h27374a : 24'h111e2c;
+        if (x3 >= 1008 && x3 < 1011 &&
+            ((y3 >= 80 && y3 < 192) || (y3 >= 200 && y3 < 304) || (y3 >= 312 && y3 < 416)))
+            rgb <= y3 < 200 ? 24'h61c8e0 : 24'hffce73;
+        if (header_tab)
+            rgb <= selected_tab ? 24'h254354 : 24'h142333;
+        if (header_tab && selected_tab && y3 == 33)
+            rgb <= 24'h61c8e0;
+        if (x3 >= 1024 && x3 < 1256 && y3 >= 8 && y3 < 48)
+            rgb <= meta_pix[7] ? 24'h183b35 : 24'h49342b;
+        if (y3 == 60 || y3 == 620)
+            rgb <= 24'h2b3c50;
+        if (y3 >= 630 && y3 < 634)
+            rgb <= 24'h375367;
+        if (meta_pix[9] && x3 >= 32 && x3 < 352 && y3 >= 76 && y3 < 464) begin
+            rgb <= (x3 == 32 || x3 == 351 || y3 == 76 || y3 == 463) ? 24'h4c6a81 : 24'h172b3d;
             if (y3 >= ((7 + meta_pix[14 : 10]) * 16) && y3 < ((8 + meta_pix[14 : 10]) * 16))
-                rgb <= 24'h275565;
+                rgb <= 24'h315467;
         end
-        if (font3[7 - bit3] || (VIDEO_VGA && font3[6 - bit3]))
-            rgb <= y3 < 60 ? 24'h71dfed : 24'hd5e3ef;
+        if ((font3[7 - bit3] || (VIDEO_VGA && bit3 < 7 && font3[6 - bit3])) &&
+            !(y3 < 12 && x3 >= 24 && x3 < 184)) begin
+            rgb <= 24'hd3dfed;
+            if (y3 < 60)
+                rgb <= 24'he9f2fb;
+            if (y3 >= 64 && y3 < 86 && x3 < 980)
+                rgb <= 24'hffce73;
+            if (big_value)
+                rgb <= 24'hebf4ff;
+            if (x3 >= 1016 &&
+                ((y3 >= 80 && y3 < 104) || (y3 >= 208 && y3 < 232) || (y3 >= 320 && y3 < 344)))
+                rgb <= 24'h83a4c1;
+            if (y3 >= 640 && y3 < 656)
+                rgb <= 24'hffce73;
+            if (y3 >= 672)
+                rgb <= 24'h91aac1;
+        end
         if (pixel_rst) begin
             rgb <= 0;
             hs_q <= 0;

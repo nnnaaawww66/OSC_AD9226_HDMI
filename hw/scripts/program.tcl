@@ -7,10 +7,13 @@ connect -url tcp:127.0.0.1:3121
 set devices [targets -target-properties]
 puts $devices
 # Select only the Zynq-7000 device and Cortex-A9 #0; fail on an ambiguous/missing chain.
-# Halt both cores before changing PL/DDR, including a core previously started by an SD image.
+# A system reset also recovers a CPU blocked on an unresponsive old AXI slave.
+targets -set -filter {name =~ "ARM*#0"}
+rst -system
+after 500
 foreach core {0 1} {
  targets -set -filter [format {name =~ "ARM*#%d"} $core]
- stop
+ if {[catch {stop} why] && ![string match {*Already stopped*} $why]} {error $why}
 }
 targets -set -filter {name =~ "xc7z010*"}
 fpga -file $root/results/2026-10-17/scope_top.bit
@@ -18,7 +21,7 @@ targets -set -filter {name =~ "ARM*#0"}
 rst -cores
 foreach core {0 1} {
  targets -set -filter [format {name =~ "ARM*#%d"} $core]
- stop
+ if {[catch {stop} why] && ![string match {*Already stopped*} $why]} {error $why}
 }
 targets -set -filter {name =~ "ARM*#0"}
 source $root/results/2026-10-17/ps7_init.tcl

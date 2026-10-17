@@ -12,6 +12,7 @@ if {[file exists $root/sw/sdk2018/scope_hw/.project]} {
  createapp -name scope_diag -hwproject scope_hw -proc ps7_cortexa9_0 -os standalone -bsp scope_bsp -lang C -app {Empty Application}
 }
 foreach f [glob $root/sw/src/* $root/sw/include/*] {file copy -force $f $root/sw/sdk2018/scope/src/}
+file copy -force $root/sw/include/scope_debug.h $root/sw/sdk2018/scope_diag/src/
 foreach f [glob $root/sw/diag/*] {file copy -force $f $root/sw/sdk2018/scope_diag/src/}
 configapp -app scope build-config release
 configapp -app scope -set compiler-misc {-c -fmessage-length=0 -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -std=gnu99 -O2 -Wall -Wextra -Werror -Wno-unused-parameter}

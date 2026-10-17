@@ -21,6 +21,7 @@ set_property CONFIG.ENABLE_RATE_SWITCH 0 [get_bd_cells scope_0]
 set_property generic {VIDEO_VGA=0} [get_filesets sources_1]
 set_property CONFIG.FREQ_HZ 74250000 [get_bd_ports pixel_clk]
 validate_bd_design
+source $root/hw/scripts/assert_bd_resets.tcl
 if {[get_property CONFIG.C_EXT_RESET_HIGH [get_bd_cells reset_0]] != 1} {error "RESET POLARITY"}
 set_property synth_checkpoint_mode None [get_files */scope_core.bd]
 save_bd_design
