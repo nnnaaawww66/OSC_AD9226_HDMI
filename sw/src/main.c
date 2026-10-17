@@ -262,7 +262,8 @@ static void draw_ui(void) {
     } else {
         text(31, 127, "RECORD 16K / PRETRIG 8K");
         text(32, 127, "DDR %s", mem_gate ? "SELFTEST PASSED" : "SELFTEST REQUIRED");
-        text(33, 127, "MEM %s / SEG %u OF 8", mem_valid ? "READY" : "EMPTY", seg_count);
+        text(33, 127, "MEM %s / SEG %u OF 8", mem_valid ? "READY" : "EMPTY",
+             seg_count < SEGMENTS ? seg_count : SEGMENTS);
     }
     text(35, 127, "OTR %u   DROP %u", scope_read(R_OTR), scope_read(R_DROP));
     text(36, 127, "%s / ENCODING %s", err ? "FAULT / SEE STATUS" : "SYSTEM READY",
@@ -273,7 +274,7 @@ static void draw_ui(void) {
          cfg.uv_per_code > 0 ? "VOLT SCALE CALIBRATED" : "V/DIV N/A - NOT CALIBRATED");
     if (cfg.mode == FFT)
         text(40, 3, "FFT X 0..%.1f Hz   BIN %.2f Hz   Y 0..-120 dBFS   BOXCAR DECIMATION",
-             cfg.rate * cfg.fft_n / (2.0 * SCOPE_N), cfg.rate / (double)SCOPE_N);
+             (double)cfg.rate * cfg.fft_n / (2.0 * SCOPE_N), cfg.rate / (double)SCOPE_N);
     if (cfg.mode == EYE)
         text(40, 3, "EYE 0..2 UI / %.3f us   160x90 DENSITY   WIDTH/JITTER N/A - NO REFERENCE LOCK",
              2e6 / cfg.bitrate);
@@ -393,6 +394,8 @@ static int change_mode(unsigned mode) {
     if (!wait_idle(R_DISPLAY, 1, 80))
         return 0;
     cfg.mode = mode;
+    hits = 0;
+    drops = 0;
     memset(hist, 0, sizeof(hist));
     if (wait_idle(0xb4, 1, 50))
         scope_write(0xb8, 1);
@@ -403,6 +406,7 @@ static int change_mode(unsigned mode) {
 }
 static void fft_wave(void) {
     unsigned x, j;
+    unsigned previous_y = 609;
     unsigned stride = SCOPE_N / cfg.fft_n;
     scope_fft(record, cfg.fft_n, stride, cfg.hann, cfg.rate, re, im, spectrum, &fft_hz, &fft_db);
     for (x = 0; x < SCOPE_W; x++) {
@@ -421,7 +425,10 @@ static void fft_wave(void) {
         unsigned y = 70 + (unsigned)(-peak * 539 / 120);
         if (y > 609)
             y = 609;
-        wave[x] = y | (y << 10);
+        unsigned top = (x && previous_y < y) ? previous_y : y;
+        unsigned bottom = (x && previous_y > y) ? previous_y : y;
+        wave[x] = top | (bottom << 10);
+        previous_y = y;
     }
 }
 
@@ -451,6 +458,8 @@ static void process_record(void) {
     if (cfg.mode != ROLL)
         valid_record = 1;
     captures_processed++;
+    if (!strncmp(message, "MODE CHANGED", 12))
+        set_message("LIVE CAPTURE / SOURCE AND STATUS SHOWN ABOVE");
     // Release only AFTER copying the frozen ring. All analysis uses this private snapshot.
     scope_write(R_RELEASE, 1);
     scope_measure(record, SCOPE_N, cfg.rate, &measurement);

@@ -73,3 +73,11 @@ config load
 HDMI全黑但串口可用：读取frame/lock，检查实际720p支持和线缆；不能用仿真PNG证明显示器收到信号。没有UART则先用OCM诊断ELF确认PS UART和MIO配置。所有日志保留原始seq与时间戳；HIL脚本不会打开与板卡无关的蓝牙/虚拟串口。
 
 当前未完成的验收及实测条件必须查Acceptance.json。禁止将代码编译、XSim或host MMIO模型当成板卡性能测量。
+
+## 只接 JTAG 的调试方式
+
+无需连接 UART。`program.ps1` 会同时配置 PL 和启动 ARM ELF；只在 Vivado 点 Program Device 仅加载 bit，不能代替 ARM 启动。随后运行 `./jtag.ps1 ver`、`./jtag.ps1 status`、`./jtag.ps1 selftest`；原有 CLI 均可使用，例如 `./jtag.ps1 mode dso`、`./jtag.ps1 adc source sim`。
+
+调试使用 0x0002F000–0x0002FFFF 的 OCM 保留页，主程序把低 OCM 映射为 Normal Non-cacheable，JTAG 经 DAP AP0 物理读写，不暂停 CPU，不依赖 UART/DDR 缓存一致性。页内保留 ABI、启动阶段、主循环心跳、请求/完成序号、命令与响应。OCM 恢复程序也保留此页和阶段/心跳，但不提供完整七模式命令。
+
+如果 CPU 在旧版 AXI 访问中挂起，新的下载脚本会先执行 system reset 恢复调试，再重新配置和初始化。重复下载不会因为处理器已停止而中断。USB HDMI 抓图可用 `python tests/hil/capture_hdmi.py --output results/2026-10-17/hil/hdmi.png`；该脚本只访问名为 USB3 Video 的采集设备。

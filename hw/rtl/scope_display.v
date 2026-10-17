@@ -226,9 +226,10 @@ module scope_display
             rgb <= grid ? 24'h202e3e : 24'h090f18;
             if ((x3 == 500 || y3 == 340) && (x3[3 : 0] < 8 && y3[3 : 0] < 8))
                 rgb <= 24'h415067;
-            if ((meta_pix[2 : 0] == 1 || meta_pix[2 : 0] == 2) && meta_pix[31] && h3 != 0)
-                rgb <= heat;
-            else begin
+            if (meta_pix[2 : 0] == 1 || meta_pix[2 : 0] == 2) begin
+                if (meta_pix[31] && h3 != 0)
+                    rgb <= heat;
+            end else begin
                 if (soft_trace)
                     rgb <= 24'h6b522c;
                 if (trace)

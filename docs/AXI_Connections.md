@@ -17,3 +17,9 @@ DDR实际控制参数取自厂家Hello World BD Tcl，完整来源SHA256在vendo
 DMA前flush/invalidate，DMA完成后invalidate再读；完成由IOC中断/标志验证，不能把初始IDLE当完成。原始16-bit格式[11:0]=规范化offset code、[12]=OTR、[15:13]=0。DMA测试恢复DDS初相并逐点比对完整1Mi序列，输出实际CRC和采集净荷速率；只在本次速率通过后开放MEM/SEG。
 
 MEM是有限长度深记录；SEG是冻结BRAM块的DDR副本，二者不宣称65MSa/s连续无死区。所有停采死区和FIFO丢失有独立计数。
+
+## 实板复位修正
+
+旧版 proc_sys_reset 的 aux_reset_in 没有显式连接，2018.3 生成包装层将其默认接为 1，而 C_AUX_RESET_HIGH=1，使 peripheral_aresetn 一直保持低。这解释了视频独立输出而采集/AXI 不工作、CPU 卡在 PL_ID 读取的现象。现已通过 xlconstant reset_zero=0 显式连接 aux_reset_in 和 mb_debug_sys_rst，外部复位保持高有效。assert_bd_resets.tcl 在重建及综合之前检查连接、驱动常量和极性；负向测试会断开辅助复位并确认门禁拒绝。
+
+OCM 末页 0x0002F000–0x0002FFFF 用于 JTAG 命令与诊断，OCM 恢复 ELF 的可用低 OCM 长度限定为 0x2F000。该区域不写入 Flash。

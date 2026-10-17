@@ -21,6 +21,11 @@ registers[R_ID/4]=0x53434f50;registers[R_VER/4]=0x30000;registers[R_FRAME/4]=360
  memset(hist,0,sizeof(hist));for(unsigned i=0;i<64;i++)scope_density(hist,record,SCOPE_N,cfg.rate,cfg.bitrate,0,0,100000,&hits,&drops);
  save_hex("ui_hist.mem",hist,sizeof(hist),1);
  cfg.mode=DPX;draw_ui();save_hex("ui_text_dpx.mem",screen,7200,1);
+ for(unsigned n=1024;n<=4096;n*=2){
+  cfg.mode=FFT;cfg.fft_n=n;draw_ui();char row[161];memcpy(row,screen+40*160,160);row[160]=0;
+  char expected[40];snprintf(expected,sizeof(expected),"%.1f Hz",(double)cfg.rate*n/(2.0*SCOPE_N));assert(strstr(row,expected));
+  fft_wave();for(unsigned x=0;x<SCOPE_W;x++){assert((wave[x]&1023)>=70);assert((wave[x]>>10)<=609);assert((wave[x]&1023)<=(wave[x]>>10));}
+ }
  for(unsigned i=0;i<1000;i++){assert(change_mode(i%5));assert(cfg.mode==i%5);}
  for(unsigned i=0;i<21;i++){if(i==18)continue;selection=i;edit(1);edit(-1);}
  assert(scope_host_read(R_ID)==0x53434f50);puts("PASS host UI: firmware-generated glyph map, 20 menu entries (hardware selftest deferred), 1000 mode transitions (MMIO model)");return 0;}

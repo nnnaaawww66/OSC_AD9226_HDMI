@@ -47,8 +47,21 @@ if {[catch {ps7_init} init_error]} {
  dow $root/results/2026-10-17/scope.elf
 }
 con
+# Success means firmware reached the main loop, not merely that dow completed.
+targets -set -filter {name == "APU"}
+set deadline [expr {[clock milliseconds]+10000}]
+set observed {}
+while {1} {
+ set observed [mrd -value -address-space AP0 0x2f000 8]
+ set magic [lindex $observed 0];set stage [lindex $observed 2]
+ if {$magic==0x53434a54 && ($stage==6 || $stage==0xd100)} {break}
+ if {[clock milliseconds]>$deadline} {error "BOOT_TIMEOUT OCM=$observed"}
+ after 100
+}
+puts [format "BOOT_VERIFIED stage=%08x heartbeat=%u" $stage [lindex $observed 3]]
+if {$stage==6} {puts "PL_IDENT [mrd -address-space AP0 0x40000000 2]"}
 disconnect
-set f [open $success w];puts $f "JTAG_START_PASS [clock format [clock seconds]]";close $f
+set f [open $success w];puts $f "JTAG_BOOT_VERIFIED [clock format [clock seconds]]";close $f
 
 } failure]} {puts stderr "PROGRAM_FAILED: $failure";exit 1}
 exit 0
