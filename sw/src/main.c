@@ -23,8 +23,8 @@ typedef struct {
         offset, encoding, gain;
     double uv_per_code, zero;
 } settings;
-static settings cfg = {DSO, 1,       1,     2048, 8, 0, 0, 10000000, 4096,
-                       1,   1000000, 16384, 0,    0, 0, 0, 0,        2048},
+static settings cfg = {DSO, 1,       1,    2048, 8, 0, 0, 10000000, 4096,
+                       1,   1000000, 4096, 0,    0, 0, 0, 0,        2048},
                 saved;
 static uint16_t record[SCOPE_N] __attribute__((aligned(64)));
 static uint32_t wave[SCOPE_W];
@@ -269,9 +269,16 @@ static void draw_ui(void) {
     text(36, 127, "%s / ENCODING %s", err ? "FAULT / SEE STATUS" : "SYSTEM READY",
          cfg.encoding ? "TWOS" : "OFFSET");
     text(37, 127, "FRAME %u / UI %.1f Hz", scope_read(R_FRAME), frame_hz);
-    text(40, 3, "%.3f us/div    SPAN %.3f us    16384 SAMPLES    GAIN x%u    %s",
-         cfg.span * 1e5 / cfg.rate, cfg.span * 1e6 / cfg.rate, 1u << cfg.gain,
+    text(40, 3, "%.3f us/div    SPAN %.3f us    VIEW %u / RECORD 16K    GAIN x%u    %s",
+         cfg.span * 1e5 / cfg.rate, cfg.span * 1e6 / cfg.rate, cfg.span, 1u << cfg.gain,
          cfg.uv_per_code > 0 ? "VOLT SCALE CALIBRATED" : "V/DIV N/A - NOT CALIBRATED");
+    if (cfg.mode == FFT || cfg.mode == EYE || cfg.mode == ROLL || cfg.mode == DPX ||
+        (cfg.mode == MEM && mem_valid) || (cfg.mode == SEG && seg_count))
+        memset(screen + 40 * 160, ' ', 160);
+    if (cfg.mode == DPX)
+        text(40, 3,
+             "DPX %.3f us/div   FULL 16K / %.3f us   DENSITY 160x90   8-BIT SATURATION / DECAY",
+             SCOPE_N * 1e5 / cfg.rate, SCOPE_N * 1e6 / cfg.rate);
     if (cfg.mode == FFT)
         text(40, 3, "FFT X 0..%.1f Hz   BIN %.2f Hz   Y 0..-120 dBFS   BOXCAR DECIMATION",
              (double)cfg.rate * cfg.fft_n / (2.0 * SCOPE_N), cfg.rate / (double)SCOPE_N);
@@ -756,7 +763,7 @@ static void dispatch(char *line) {
     if (!strcmp(a[0], "help")) {
         reply(
             1,
-            "help ver selftest status clocks capture trigger dma dpx errors mode run menu trig adc fft eye cal memory config");
+            "help ver selftest status measure clocks capture trigger dma dpx errors mode run menu trig adc fft eye cal memory config");
         return;
     }
     if (!strcmp(a[0], "ver")) {
@@ -775,6 +782,15 @@ static void dispatch(char *line) {
     if (!strcmp(a[0], "status") || !strcmp(a[0], "capture") || !strcmp(a[0], "trigger") ||
         !strcmp(a[0], "errors")) {
         status();
+        return;
+    }
+    if (!strcmp(a[0], "measure")) {
+        reply(
+            1,
+            "valid=%u source=%s min=%u max=%u mean=%.4f rms_code=%.4f frequency=%.4f frequency_valid=%u overrange=%u calibrated=%u",
+            valid_record, record_source_sim ? "SIM" : "ADC", measurement.min, measurement.max,
+            measurement.mean, measurement.rms, measurement.frequency, measurement.frequency_valid,
+            measurement.overrange, cfg.uv_per_code > 0);
         return;
     }
     if (!strcmp(a[0], "clocks")) {

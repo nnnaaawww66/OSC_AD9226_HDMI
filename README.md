@@ -28,3 +28,9 @@
 DPX/EYE 的采集率、直方图更新率、UI 上传率和视频帧率是不同指标。计数分别可读。160×90 为资源门控后的降级平面，不应宣传为原生 320×180。PS 读取冻结 BRAM 后马上释放，后续分析不会修改当前冻结记录。
 
 详细接线、双键操作、命令和故障定位见 `docs/User_Manual.md`；时钟和跨域证明见 `docs/Clock_Plan.md`。
+
+## 实板启动修复版
+
+已修复 proc_sys_reset 辅助复位默认接高导致 AXI/采集永久复位的问题，加入显式常量连接、构建门禁及负向回归。`program.ps1` 会复位 PS、配置 PL、初始化 DDR、下载 ARM，并经 OCM 验证主循环启动；单独加载 bit 不会启动 ARM 程序。
+
+只接 JTAG 即可执行 `./jtag.ps1 ver`、`./jtag.ps1 status`、`./jtag.ps1 selftest`、`./jtag.ps1 measure`。实际 HDMI 抓图、自检和 1000 次硬件模式切换日志见 results/2026-10-17/hil；本次没有写 Flash。

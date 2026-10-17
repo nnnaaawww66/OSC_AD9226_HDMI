@@ -16,7 +16,7 @@ int main(void){
  assert(menu==1);poll_debug();assert(menu==1);menu=0;
 registers[R_ID/4]=0x53434f50;registers[R_VER/4]=0x30000;registers[R_FRAME/4]=3600;registers[R_TRIG/4]=121;registers[R_TIME/4]=1638400;
  for(unsigned i=0;i<SCOPE_N;i++)record[i]=(uint16_t)lround(2048+1450*sin(2*3.141592653589793*10000*i/cfg.rate));
- scope_measure(record,SCOPE_N,cfg.rate,&measurement);valid_record=1;record_source_sim=1;cfg.mode=DSO;scope_envelope(record,SCOPE_N,0,SCOPE_N,wave);
+ scope_measure(record,SCOPE_N,cfg.rate,&measurement);valid_record=1;record_source_sim=1;cfg.mode=DSO;scope_envelope(record,SCOPE_N,(SCOPE_N-cfg.span)/2,cfg.span,wave);
  draw_ui();save_hex("ui_text.mem",screen,7200,1);save_hex("ui_wave.mem",wave,SCOPE_W,4);
  memset(hist,0,sizeof(hist));for(unsigned i=0;i<64;i++)scope_density(hist,record,SCOPE_N,cfg.rate,cfg.bitrate,0,0,100000,&hits,&drops);
  save_hex("ui_hist.mem",hist,sizeof(hist),1);

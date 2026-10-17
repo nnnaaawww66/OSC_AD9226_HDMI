@@ -28,6 +28,33 @@ for {set i 0} {$i<$cycles} {incr i} {
  if {$i%50==0} {puts "HIL_MODE_PROGRESS $i/$cycles";check status errors=00000000}
 }
 check {mode dso} mode=DSO
+check {trig type normal} trigger_updated
+check {trig level 0} trigger_updated
+after 200
+set t0 [mrd -value -address-space AP0 0x40000020]
+after 200
+set t1 [mrd -value -address-space AP0 0x40000020]
+if {$t0!=$t1} {error "Normal mode triggered without a valid rising crossing"}
+check {trig type auto} trigger_updated
+after 300
+if {[mrd -value -address-space AP0 0x40000020]<=$t1} {error "Auto timeout failed to capture"}
+check {trig level 2048} trigger_updated
+check {trig type single} trigger_updated
+after 200
+set t0 [mrd -value -address-space AP0 0x40000020]
+after 200
+if {[mrd -value -address-space AP0 0x40000020]!=$t0} {error "Single mode retriggered"}
+check {trig type single} trigger_updated
+after 200
+if {[mrd -value -address-space AP0 0x40000020]!=$t0+1} {error "Single re-arm did not capture exactly once"}
+check {trig type auto} trigger_updated
+check {run 0} run=0
+after 100
+set t0 [mrd -value -address-space AP0 0x40000020]
+after 200
+if {[mrd -value -address-space AP0 0x40000020]!=$t0} {error "STOP did not halt acquisition"}
+check {run 1} run=1
+puts $out "PASS hardware Normal/Auto/Single/re-arm/STOP semantics"
 set last [mrd -value -address-space AP0 0x40000038]
 if {$last<=$first} {error "Video frame count failed to advance"}
 puts [check status errors=00000000]

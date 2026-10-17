@@ -81,3 +81,5 @@ HDMI全黑但串口可用：读取frame/lock，检查实际720p支持和线缆�
 调试使用 0x0002F000–0x0002FFFF 的 OCM 保留页，主程序把低 OCM 映射为 Normal Non-cacheable，JTAG 经 DAP AP0 物理读写，不暂停 CPU，不依赖 UART/DDR 缓存一致性。页内保留 ABI、启动阶段、主循环心跳、请求/完成序号、命令与响应。OCM 恢复程序也保留此页和阶段/心跳，但不提供完整七模式命令。
 
 如果 CPU 在旧版 AXI 访问中挂起，新的下载脚本会先执行 system reset 恢复调试，再重新配置和初始化。重复下载不会因为处理器已停止而中断。USB HDMI 抓图可用 `python tests/hil/capture_hdmi.py --output results/2026-10-17/hil/hdmi.png`；该脚本只访问名为 USB3 Video 的采集设备。
+
+2026-10-17 实板修复版：默认仍采集 16K，显示触发点附近 4K（40.96us/div @10MSa/s），可在 TIME SPAN 调整。只接 JTAG 时，`./jtag.ps1 measure` 返回冻结记录的 min/max、code RMS、频率及有效标志。电压量程未标定时保持 N/A。
