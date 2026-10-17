@@ -48,6 +48,16 @@ with serial.Serial(a.port,115200,timeout=.1,write_timeout=2) as port:
         crc=zlib.crc32(table.tobytes());commit=ask(f'dac commit {crc:08x} 1000 0')
         assert commit['crc']==f'{crc:08x}'
         assert ask('dac status')['table_crc']==f'{crc:08x}'
+        if int(ask('ver')['rtl'],16)>=0x40000:
+            ask('dac enable 1')
+            observed=set()
+            for _ in range(20):
+                sample=ask('dac status');step=round(float(sample['actual_hz'])*2**32/50_000_000)
+                index=((int(sample['phase'],16)-step)&0xffffffff)>>21
+                assert sample['hw_enabled']=='1' and int(sample['sample_code'])==int(table[index]),'DAC output register differs from the committed table/DDS phase'
+                observed.add(int(sample['sample_code']))
+            assert len(observed)>5,'DAC output codes are not changing'
+            ask('dac enable 0')
         # Invalid requests cannot change the last committed waveform.
         for cmd in ['dac set sine nan 0.1 0.5 0.5 1','dac set sine 1000 1 0.9 0.5 1','dac set sine 1000 0.1 0.5 0 1']:
             ask(cmd,False);assert ask('dac status')['table_crc']==f'{crc:08x}'

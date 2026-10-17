@@ -1,5 +1,6 @@
 if {[catch {
 set root [file normalize [file join [file dirname [info script]] ../..]]
+file mkdir $root/boot
 setws $root/sw/sdk2018
 if {![file exists $root/sw/sdk2018/scope_flash_read/.project]} {
  createapp -name scope_flash_read -hwproject scope_hw -proc ps7_cortexa9_0 -os standalone -bsp scope_bsp -lang C -app {Empty Application}

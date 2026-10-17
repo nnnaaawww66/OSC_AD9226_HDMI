@@ -23,3 +23,9 @@ NA/
 usage_statistics_webtalk.*
 *.str
 __pycache__/
+
+boot/*.elf
+boot/*.bit
+boot/*.BIN
+boot/manifest.json
+

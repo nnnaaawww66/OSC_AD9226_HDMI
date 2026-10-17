@@ -1,11 +1,13 @@
 # Generate FSBL against the actual new hardware. FLASH writing is separate.
 if {[catch {
 set root [file normalize [file join [file dirname [info script]] ../..]]
+file mkdir $root/boot
 setws $root/sw/sdk2018
 if {![file exists $root/sw/sdk2018/scope_fsbl/.project]} {
  createapp -name scope_fsbl -hwproject scope_hw -proc ps7_cortexa9_0 -os standalone -lang C -app {Zynq FSBL}
 }
 configapp -app scope_fsbl build-config release
+projects -build -type bsp -name scope_fsbl_bsp
 projects -build -type app -name scope_fsbl
 set fsbl $root/sw/sdk2018/scope_fsbl/Release/scope_fsbl.elf
 if {![file exists $fsbl]} {error "FSBL missing"}
