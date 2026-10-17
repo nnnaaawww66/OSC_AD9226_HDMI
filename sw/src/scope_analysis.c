@@ -179,8 +179,9 @@ void scope_density(uint8_t *h, const uint16_t *d, unsigned n, unsigned rate, uns
             h[i] = h[i] > 1 ? h[i] - 1 : 0;
     }
     for (i = 0; i < n; i += 4) {
-        unsigned x = eye ? (unsigned)((((first + i) * bitrate) % ((uint64_t)2 * rate)) * HIST_W /
-                                      ((uint64_t)2 * rate))
+        unsigned x = eye ? (unsigned)(((((first + i) % ((uint64_t)2 * rate)) * bitrate) %
+                                       ((uint64_t)2 * rate)) *
+                                      HIST_W / ((uint64_t)2 * rate))
                          : (uint64_t)i * HIST_W / n;
         int y = (4095 - (d[i] & 4095)) * (HIST_H - 1) / 4095;
         if (point_sink) {

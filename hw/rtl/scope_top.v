@@ -18,13 +18,14 @@ module scope_top
      inout wire FIXED_IO_ddr_vrn, FIXED_IO_ddr_vrp,
      inout wire [53 : 0] FIXED_IO_mio,
      inout wire FIXED_IO_ps_clk, FIXED_IO_ps_porb, FIXED_IO_ps_srstb);
-    wire clk_sys, adc_internal, clk_pixel, clk_serial, locked_adc, locked_video;
+    wire clk_sys, adc_internal, adc_forward_clk, clk_pixel, clk_serial, locked_adc, locked_video;
     wire [1 : 0] rate;
     scope_clocks #(.VIDEO_VGA(VIDEO_VGA))
         clocks(.clk_50m(clk_50m),
                .rate_sel(rate),
                .clk_sys(clk_sys),
                .clk_adc(adc_internal),
+               .clk_adc_fwd(adc_forward_clk),
                .clk_pixel(clk_pixel),
                .clk_serial(clk_serial),
                .locked_adc(locked_adc),
@@ -32,7 +33,7 @@ module scope_top
     ODDR #(.DDR_CLK_EDGE("SAME_EDGE"),
            .INIT(1'b0),
            .SRTYPE("ASYNC"))
-        adc_forward(.C(adc_internal),
+        adc_forward(.C(adc_forward_clk),
                     .CE(1'b1),
                     .D1(1'b1),
                     .D2(1'b0),

@@ -3,23 +3,33 @@ cd $root
 set results $root/results/2026-10-17
 open_project $root/OSC_ad9226_hdmi.xpr
 set_param general.maxThreads 4
+source $root/hw/scripts/setup_ila.tcl
 open_bd_design [get_files */scope_core.bd]
+set_property CONFIG.ENABLE_RATE_SWITCH 1 [get_bd_cells scope_0]
 source $root/hw/scripts/assert_bd_resets.tcl
 validate_bd_design
 save_bd_design
+write_bd_tcl -force $root/hw/bd/recreate_scope_bd.tcl
 generate_target all [get_files */scope_core.bd]
 set code_sha 00000000
 if {![catch {exec git -C $root rev-parse --short=8 HEAD} git_sha]} {set code_sha [string trim $git_sha]}
-set_property verilog_define [list "SCOPE_BUILD_SHA=32'h$code_sha"] [get_filesets sources_1]
+set_property verilog_define [list "SCOPE_BUILD_SHA=32'h$code_sha" SCOPE_ILA] [get_filesets sources_1]
 set f [open $results/build_revision.txt w];puts $f $code_sha;close $f
 reset_run synth_1
 launch_runs synth_1 -jobs 4
 wait_on_run synth_1
 if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} {error "Synthesis failed"}
+set sf [open [get_property DIRECTORY [get_runs synth_1]]/runme.log r]
+set synth_log [read $sf];close $sf
+if {[string first "CRITICAL WARNING:" $synth_log]>=0} {error "Synthesis critical-warning gate failed; inspect runme.log"}
 launch_runs impl_1 -to_step route_design -jobs 4
 wait_on_run impl_1
 if {[get_property PROGRESS [get_runs impl_1]] ne "100%"} {error "Implementation failed"}
 open_run impl_1
+source $root/hw/scripts/assert_adc_clocks.tcl
+set inf [open [get_property DIRECTORY [get_runs impl_1]]/runme.log r]
+set impl_log [read $inf];close $inf
+if {[string first "CRITICAL WARNING:" $impl_log]>=0} {error "Implementation critical-warning gate failed; inspect runme.log"}
 report_utilization -file $results/utilization.rpt
 report_timing_summary -delay_type min_max -report_unconstrained -file $results/timing_summary.rpt
 report_clock_interaction -file $results/clock_interaction.rpt
@@ -37,6 +47,7 @@ set bad_hold [get_timing_paths -quiet -delay_type min -slack_lesser_than 0]
 if {[llength $bad_setup]||[llength $bad_hold]} {error "Timing gate failed; inspect reports. No bitstream released."}
 set fatal [get_drc_violations -quiet -filter {SEVERITY == Error}]
 if {[llength $fatal]} {error "DRC gate failed: $fatal"}
+write_debug_probes -force $results/scope_top.ltx
 write_checkpoint -force $results/scope_routed.dcp
 write_bitstream -force $results/scope_top.bit
 # Keep the GUI's normal Program Device path identical to the qualified release.

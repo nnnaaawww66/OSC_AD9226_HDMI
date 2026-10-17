@@ -10,6 +10,12 @@ for cmd in commands:
  p=subprocess.run([str(bin/cmd[0]),*cmd[1:]],cwd=out,text=True,encoding='utf-8',errors='replace',stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=180);log+=p.stdout
  if p.returncode:break
 (out/'rtl_display.log').write_text(log);assert 'PASS display' in log,log[-4000:]
+import re,zlib
+raw=(out/'ui_rtl.ppm').read_bytes().split(b'\n',3)[3]
+expected=zlib.crc32(raw)
+actual=int(re.search(r'PIXEL_CRC32=([0-9a-fA-F]+)',log).group(1),16)
+assert expected==actual, f'pixel CRC mismatch: Python {expected:08x}, RTL {actual:08x}'
+print(f'PASS independent RGB frame CRC32 {actual:08x}')
 from PIL import Image
 Image.open(out/'ui_rtl.ppm').save(out/'ui_rtl.png')
 print('PASS actual RTL image:',out/'ui_rtl.png')

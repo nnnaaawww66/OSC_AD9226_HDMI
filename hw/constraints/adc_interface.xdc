@@ -1,5 +1,20 @@
-# Hardware ENABLE_RATE_SWITCH=0 enforces 10MSa/s. Higher rates are unqualified and rejected by RTL.
-# AD9226 tOD3.5..7ns + provisional external round-trip allowance0..3ns.
-create_generated_clock -name adc_fwd10 -source [get_pins clocks/adc_mmcm/CLKOUT1] -divide_by 1 [get_ports adc_clk]
-set_input_delay -clock adc_fwd10 -max 10.000 [get_ports {adc_data[*] adc_otr}]
-set_input_delay -clock adc_fwd10 -min 3.500 [get_ports {adc_data[*] adc_otr}]
+# AD9226 Rev.B tOD=3.5..7ns + conservative external allowance 0..3ns.
+# 50/65MHz capture phase = 3.846ns, quantized to the MMCM VCO/8 step.
+# Only incompatible selected modes are exclusive. ADC data/OTR paths remain timed.
+create_generated_clock -name adc_fwd10 -source [get_pins clocks/adc_mmcm/CLKOUT1] -master_clock [get_clocks -of_objects [get_pins clocks/adc_mmcm/CLKOUT1]] -divide_by 1 -add [get_ports adc_clk]
+create_generated_clock -name adc_rx10 -source [get_pins clocks/adc_mmcm/CLKOUT1] -master_clock [get_clocks -of_objects [get_pins clocks/adc_mmcm/CLKOUT1]] -divide_by 1 -add [get_pins clocks/rxmux/O]
+set_input_delay -clock adc_fwd10 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_input_delay -clock adc_fwd10 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
+create_generated_clock -name adc_fwd25 -source [get_pins clocks/adc_mmcm/CLKOUT2] -master_clock [get_clocks -of_objects [get_pins clocks/adc_mmcm/CLKOUT2]] -divide_by 1 -add [get_ports adc_clk]
+create_generated_clock -name adc_rx25 -source [get_pins clocks/adc_mmcm/CLKOUT2] -master_clock [get_clocks -of_objects [get_pins clocks/adc_mmcm/CLKOUT2]] -divide_by 1 -add [get_pins clocks/rxmux/O]
+set_input_delay -clock adc_fwd25 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_input_delay -clock adc_fwd25 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
+create_generated_clock -name adc_fwd50 -source [get_pins clocks/adc_mmcm/CLKOUT3] -master_clock [get_clocks -of_objects [get_pins clocks/adc_mmcm/CLKOUT3]] -divide_by 1 -add [get_ports adc_clk]
+create_generated_clock -name adc_rx50 -source [get_pins clocks/adc_mmcm/CLKOUT5] -master_clock [get_clocks -of_objects [get_pins clocks/adc_mmcm/CLKOUT5]] -divide_by 1 -add [get_pins clocks/rxmux/O]
+set_input_delay -clock adc_fwd50 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_input_delay -clock adc_fwd50 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
+create_generated_clock -name adc_fwd65 -source [get_pins clocks/adc_mmcm/CLKOUT4] -master_clock [get_clocks -of_objects [get_pins clocks/adc_mmcm/CLKOUT4]] -divide_by 1 -add [get_ports adc_clk]
+create_generated_clock -name adc_rx65 -source [get_pins clocks/adc_mmcm/CLKOUT6] -master_clock [get_clocks -of_objects [get_pins clocks/adc_mmcm/CLKOUT6]] -divide_by 1 -add [get_pins clocks/rxmux/O]
+set_input_delay -clock adc_fwd65 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_input_delay -clock adc_fwd65 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
+set_clock_groups -physically_exclusive -group [get_clocks {adc_rx10 adc_fwd10}] -group [get_clocks {adc_rx25 adc_fwd25}] -group [get_clocks {adc_rx50 adc_fwd50}] -group [get_clocks {adc_rx65 adc_fwd65}]

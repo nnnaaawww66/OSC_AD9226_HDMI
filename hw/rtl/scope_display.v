@@ -18,7 +18,30 @@ module scope_display
      output reg [31 : 0] frame_count = 0,
      output wire hs, vs, de,
      output reg [23 : 0] rgb = 0,
-     output wire front_bank);
+     output wire front_bank,
+     output reg [31:0] frame_crc = 0);
+    wire fs;
+    function [31:0] crc_rgb;
+        input [31:0] seed;
+        input [23:0] pixel;
+        reg [31:0] c;
+        integer b;
+        begin
+            c = seed;
+            // Reflected IEEE CRC32; byte order R, G, B, LSB first within each byte.
+            for (b=0; b<24; b=b+1) begin
+                if (c[0] ^ pixel[(2-b/8)*8 + b%8]) c=(c>>1)^32'hedb88320;
+                else c=c>>1;
+            end
+            crc_rgb=c;
+        end
+    endfunction
+    reg [31:0] crc_state = 32'hffffffff;
+    always @(posedge pixel_clk) begin
+        if (pixel_rst) begin crc_state <= 32'hffffffff; frame_crc <= 0; end
+        else if (fs) begin frame_crc <= ~crc_state; crc_state <= 32'hffffffff; end
+        else if (de) crc_state <= crc_rgb(crc_state, rgb);
+    end
     (* ram_style = "block" *) reg [19 : 0] wave[0 : 2047];
     (* ram_style = "block" *) reg [7 : 0] histogram[0 : 32767];
     (* ram_style = "block" *) reg [7 : 0] characters[0 : 16383];
@@ -36,7 +59,7 @@ module scope_display
     assign pending = req != ack_sync;
     wire [11 : 0] x_raw, y_raw;
     wire [11 : 0] x = VIDEO_VGA ? (x_raw << 1) : x_raw, y = VIDEO_VGA ? ((y_raw * 3) >> 1) : y_raw;
-    wire hs0, vs0, de0, fs, hs_active, vs_active;
+    wire hs0, vs0, de0, hs_active, vs_active;
     assign hs0 = VIDEO_VGA ? ~hs_active : hs_active;
     assign vs0 = VIDEO_VGA ? ~vs_active : vs_active;
     scope_video_timing #(.H_ACTIVE(VIDEO_VGA ? 640 : 1280),
@@ -249,6 +272,7 @@ module scope_display
             rgb <= 24'h61c8e0;
         if (x3 >= 1024 && x3 < 1256 && y3 >= 8 && y3 < 48)
             rgb <= meta_pix[7] ? 24'h183b35 : 24'h49342b;
+        if (meta_pix[8] && y3 >= 61 && y3 < 69) rgb <= 24'hd99336;
         if (y3 == 60 || y3 == 620)
             rgb <= 24'h2b3c50;
         if (y3 >= 630 && y3 < 634)

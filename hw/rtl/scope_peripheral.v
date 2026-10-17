@@ -3,7 +3,7 @@
 `endif
 `timescale 1ns / 1ps
 module scope_peripheral
-    #(parameter VIDEO_VGA = 0, ENABLE_RATE_SWITCH = 0)
+    #(parameter VIDEO_VGA = 0, ENABLE_RATE_SWITCH = 1)
     ((* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 s_axi_aclk CLK",
       X_INTERFACE_PARAMETER =
           "ASSOCIATED_BUSIF s_axi:m_axis, ASSOCIATED_RESET s_axi_aresetn, FREQ_HZ 100000000" *)
@@ -233,18 +233,37 @@ module scope_peripheral
     wire [31 : 0] dma_drop, dma_prod;
     wire dma_active;
     wire [12 : 0] fifo_level;
+    wire [15:0] adc_axis_data;
+    wire [1:0] adc_axis_keep;
+    wire adc_axis_valid, adc_axis_last;
+    reg stress_select = 0, stress_active = 0;
+    reg [31:0] stress_index = 0, stress_length = 0;
+    wire stress_start = dma_start && stress_select;
+    assign m_axis_tdata = stress_select ? stress_index[15:0] : adc_axis_data;
+    assign m_axis_tkeep = stress_select ? 2'b11 : adc_axis_keep;
+    assign m_axis_tvalid = stress_select ? stress_active : adc_axis_valid;
+    assign m_axis_tlast = stress_select ? (stress_index + 1 == stress_length) : adc_axis_last;
+    always @(posedge clk) begin
+        if (rst || dma_flush) begin stress_active <= 0; stress_index <= 0; end
+        else if (stress_start) begin
+            stress_index <= 0; stress_length <= dma_count; stress_active <= dma_count != 0;
+        end else if (stress_select && stress_active && m_axis_tready) begin
+            stress_index <= stress_index + 1;
+            if (stress_index + 1 == stress_length) stress_active <= 0;
+        end
+    end
     scope_dma_stream dma_stream(.adc_clk(adc_clk_in),
                                 .adc_rst(adc_rst),
                                 .sample({3'b0, otr, sample}),
-                                .start(dma_start),
+                                .start(dma_start && !stress_select),
                                 .count(dma_count),
                                 .bus_clk(clk),
                                 .bus_rst(rst),
-                                .m_axis_tdata(m_axis_tdata),
-                                .m_axis_tkeep(m_axis_tkeep),
-                                .m_axis_tvalid(m_axis_tvalid),
-                                .m_axis_tready(m_axis_tready),
-                                .m_axis_tlast(m_axis_tlast),
+                                .m_axis_tdata(adc_axis_data),
+                                .m_axis_tkeep(adc_axis_keep),
+                                .m_axis_tvalid(adc_axis_valid),
+                                .m_axis_tready(m_axis_tready && !stress_select),
+                                .m_axis_tlast(adc_axis_last),
                                 .dropped(dma_drop),
                                 .produced(dma_prod),
                                 .active(dma_active),
@@ -283,8 +302,8 @@ module scope_peripheral
     reg [7 : 0] hist_data = 0, text_data = 0;
     reg [12 : 0] text_addr = 0;
     wire display_pending, front_bank;
-    wire [31 : 0] video_frames;
-    wire [31 : 0] frame_meta = {owner[0] | fb_valid, 22'b0,  config_reg[1],
+    wire [31 : 0] video_frames, video_crc;
+    wire [31 : 0] frame_meta = {owner[0] | fb_valid, 22'b0,  (owner[0] ? owner[7] : config_reg[1]),
                                 config_reg[0],       auto_s, 3'b0,
                                 mode_reg[2 : 0]} |
                                ((owner & 32'h7e) << 8);
@@ -310,17 +329,17 @@ module scope_peripheral
                 .vs(vs),
                 .de(de),
                 .rgb(rgb),
-                .front_bank(front_bank));
+                .front_bank(front_bank), .frame_crc(video_crc));
     wire video_mb_busy, video_valid;
-    wire [31 : 0] frames_s;
-    scope_mailbox frame_mb(.sclk(pixel_clk),
+    wire [31 : 0] frames_s, crc_s;
+    scope_mailbox #(.WIDTH(64)) frame_mb(.sclk(pixel_clk),
                            .srst(pixel_rst),
-                           .sdata(video_frames),
+                           .sdata({video_crc,video_frames}),
                            .send(!video_mb_busy),
                            .busy(video_mb_busy),
                            .dclk(clk),
                            .drst(rst | !video_locked),
-                           .ddata(frames_s),
+                           .ddata({crc_s,frames_s}),
                            .valid(video_valid));
     // Read address and write data are independently accepted; responses persist under backpressure.
     reg aw_hold = 0, w_hold = 0;
@@ -370,6 +389,7 @@ module scope_peripheral
             mode_reg <= 0;
             owner <= 0;
             rate_requested <= 0;
+            stress_select <= 0;
             error_flags <= 0;
             key_ack <= 0;
             fb_state <= 0;
@@ -505,7 +525,7 @@ module scope_peripheral
                         'h10: begin
                             // Physical rate changes are only legal while STOPped, after explicit
                             // host qualification.
-                            if (config_reg[0] || wd_reg > 3 || (!ENABLE_RATE_SWITCH && wd_reg != 0))
+                            if (config_reg[0] || config_busy || dma_status[64] || stress_active || wd_reg > 3 || (!ENABLE_RATE_SWITCH && wd_reg != 0))
                                 s_axi_bresp <= 2;
                             else
                                 rate_requested <= wd_reg[1 : 0];
@@ -519,10 +539,12 @@ module scope_peripheral
                         'h50:
                             if (wd_reg[1])
                                 dma_flush <= 1;
-                            else if (dma_status[64])
+                            else if (dma_status[64] || stress_active || dma_count == 0)
                                 s_axi_bresp <= 2;
-                            else
+                            else begin
+                                stress_select <= wd_reg[2];
                                 dma_start <= 1;
+                            end
                         'h5c:
                             if (display_pending)
                                 s_axi_bresp <= 2;
@@ -647,7 +669,7 @@ module scope_peripheral
                         'h54:
                             s_axi_rdata <= dma_accepted;
                         'h58:
-                            s_axi_rdata <= {18'b0, dma_status[64], fifo_level};
+                            s_axi_rdata <= {18'b0, (dma_status[64] | stress_active), fifo_level};
                         'h60:
                             s_axi_rdata <= {30'b0, front_bank, display_pending};
                         'h64:
@@ -681,6 +703,7 @@ module scope_peripheral
                             s_axi_rdata <= dma_status[128 : 97];
                         'hf0:
                             s_axi_rdata <= VIDEO_VGA;
+                        'hf8: s_axi_rdata <= crc_s;
                         'hf4:
                             s_axi_rdata <= `SCOPE_BUILD_SHA;
                         'h70:
@@ -709,4 +732,19 @@ module scope_peripheral
             end
         end
     end
+`ifdef SCOPE_ILA
+    // Three unrelated clocks use three independently clocked analyzers.
+    wire [127:0] ila_adc_bus = {sim_phase,sample_count[31:0],trig_addr,start_addr,waddr,
+                                cap_state,wen,ready,otr,adc_q,sample};
+    wire [127:0] ila_sys_bus = {m_axis_tdata,m_axis_tvalid,m_axis_tready,m_axis_tlast,
+                               fifo_level,fifo_hwm,dma_status[64],dma_status[47:32],hist_busy,
+                               raster_busy,hist_hwm,hist_hit_addr,hist_hit,raster_address,
+                               raster_valid,error_flags[7:0],config_busy,release_busy,
+                               display_pending,dma_accepted[15:0]};
+    wire [63:0] ila_video_bus = {video_frames[7:0],display.meta_pix[2:0],rgb,
+                                display.x_raw,display.y_raw,hs,vs,de,video_locked,front_bank};
+    scope_ila_adc ila_adc(.clk(adc_clk_in), .probe0(ila_adc_bus));
+    scope_ila_sys ila_sys(.clk(clk), .probe0(ila_sys_bus));
+    scope_ila_video ila_video(.clk(pixel_clk), .probe0(ila_video_bus));
+`endif
 endmodule

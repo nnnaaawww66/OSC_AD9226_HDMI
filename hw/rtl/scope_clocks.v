@@ -3,12 +3,14 @@ module scope_clocks
     #(parameter VIDEO_VGA = 0)
     (input wire clk_50m,
      input wire [1 : 0] rate_sel,
-     output wire clk_sys, clk_adc, clk_pixel, clk_serial,
+     output wire clk_sys, clk_adc, clk_adc_fwd, clk_pixel, clk_serial,
      output wire locked_adc, locked_video);
     wire fb_a, fb_ab, sys_raw;
     wire [3 : 0] adc_raw;
-    wire low_pair, high_pair;
+    wire low_pair, high_pair, rx_high_pair;
+    wire [1:0] adc_rx_raw;
     // 50 * 13 = 650MHz VCO; output0 permits a fractional divide of 6.5.
+    // High-rate receive phase is 20 VCO/8 steps = 3.846ns at both rates.
     MMCME2_BASE #(.CLKIN1_PERIOD(20.0),
                   .CLKFBOUT_MULT_F(13.0),
                   .DIVCLK_DIVIDE(1),
@@ -16,7 +18,9 @@ module scope_clocks
                   .CLKOUT1_DIVIDE(65),
                   .CLKOUT2_DIVIDE(26),
                   .CLKOUT3_DIVIDE(13),
-                  .CLKOUT4_DIVIDE(10))
+                  .CLKOUT4_DIVIDE(10),
+                  .CLKOUT5_DIVIDE(13), .CLKOUT5_PHASE(69.231),
+                  .CLKOUT6_DIVIDE(10), .CLKOUT6_PHASE(90.0))
         adc_mmcm(.CLKIN1(clk_50m),
                  .CLKFBIN(fb_ab),
                  .CLKFBOUT(fb_a),
@@ -30,8 +34,8 @@ module scope_clocks
                  .CLKOUT3(adc_raw[2]),
                  .CLKOUT3B(),
                  .CLKOUT4(adc_raw[3]),
-                 .CLKOUT5(),
-                 .CLKOUT6(),
+                 .CLKOUT5(adc_rx_raw[0]),
+                 .CLKOUT6(adc_rx_raw[1]),
                  .LOCKED(locked_adc),
                  .PWRDWN(1'b0),
                  .RST(1'b0));
@@ -39,18 +43,22 @@ module scope_clocks
              .O(fb_ab));
     BUFG sysbuf(.I(sys_raw),
                 .O(clk_sys));
-    BUFGMUX lowmux(.I0(adc_raw[0]),
+    BUFGMUX_CTRL lowmux(.I0(adc_raw[0]),
                    .I1(adc_raw[1]),
                    .S(rate_sel[0]),
                    .O(low_pair));
-    BUFGMUX highmux(.I0(adc_raw[2]),
+    BUFGMUX_CTRL highmux(.I0(adc_raw[2]),
                     .I1(adc_raw[3]),
                     .S(rate_sel[0]),
                     .O(high_pair));
-    BUFGMUX ratemux(.I0(low_pair),
+    BUFGMUX_CTRL ratemux(.I0(low_pair),
                     .I1(high_pair),
                     .S(rate_sel[1]),
-                    .O(clk_adc));
+                    .O(clk_adc_fwd));
+    BUFGMUX_CTRL rxhighmux(.I0(adc_rx_raw[0]), .I1(adc_rx_raw[1]),
+                           .S(rate_sel[0]), .O(rx_high_pair));
+    BUFGMUX_CTRL rxmux(.I0(low_pair), .I1(rx_high_pair),
+                       .S(rate_sel[1]), .O(clk_adc));
     // Cascade is required for EXACT 74.25 and 371.25MHz from the 50MHz board clock.
     // 100 * 37.125 / 5 = 742.5MHz VCO, /10 pixel, /2 serializer.
     wire fb_v, fb_vb, pix_raw, ser_raw;

@@ -15,9 +15,10 @@ set_property PROCESSING_ORDER LATE [get_files cdc.xdc]
 set_property USED_IN_SYNTHESIS false [get_files cdc.xdc]
 set_property top scope_top [get_filesets sources_1]
 update_compile_order -fileset sources_1
+source $root/hw/scripts/setup_ila.tcl
 source $root/hw/bd/recreate_scope_bd.tcl
 set_property CONFIG.VIDEO_VGA 0 [get_bd_cells scope_0]
-set_property CONFIG.ENABLE_RATE_SWITCH 0 [get_bd_cells scope_0]
+set_property CONFIG.ENABLE_RATE_SWITCH 1 [get_bd_cells scope_0]
 set_property generic {VIDEO_VGA=0} [get_filesets sources_1]
 set_property CONFIG.FREQ_HZ 74250000 [get_bd_ports pixel_clk]
 validate_bd_design

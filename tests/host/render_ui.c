@@ -4,8 +4,9 @@
 #undef main
 #include <assert.h>
 static uint32_t registers[0x100000/4];
-uint32_t scope_host_read(unsigned a){if(a==R_STATE)return 0xc09;if(a==R_RATE)return cfg.rate;return registers[a/4];}
-void scope_host_write(unsigned a,uint32_t v){registers[a/4]=v;}
+static unsigned physical_rate=10000000;
+uint32_t scope_host_read(unsigned a){if(a==R_STATE)return 0xc09;if(a==R_RATE)return physical_rate;return registers[a/4];}
+void scope_host_write(unsigned a,uint32_t v){registers[a/4]=v;if(a==R_RATE){static const unsigned rates[]={10000000,25000000,50000000,65000000};assert(v<4);physical_rate=rates[v];}}
 static void save_hex(const char*name,const void*p,unsigned n,unsigned width){FILE*f=fopen(name,"w");for(unsigned i=0;i<n;i++){unsigned v=width==1?((const unsigned char*)p)[i]:((const uint32_t*)p)[i];fprintf(f,width==1?"%02x\n":"%05x\n",v);}fclose(f);}
 int main(void){
  debug_init();assert(DEBUG_MAILBOX->magic==SCOPE_DEBUG_MAGIC);
@@ -28,4 +29,9 @@ registers[R_ID/4]=0x53434f50;registers[R_VER/4]=0x30000;registers[R_FRAME/4]=360
  }
  for(unsigned i=0;i<1000;i++){assert(change_mode(i%5));assert(cfg.mode==i%5);}
  for(unsigned i=0;i<21;i++){if(i==18)continue;selection=i;edit(1);edit(-1);}
+ assert(change_rate(1));assert(cfg.rate==25000000&&physical_rate==25000000);cfg.mode=DSO;
+ char save_command[]="config save";dispatch(save_command);
+ assert(change_rate(3));assert(cfg.rate==65000000&&physical_rate==65000000);
+ char load_command[]="config load";dispatch(load_command);
+ assert(cfg.rate==25000000&&physical_rate==25000000&&mem_gate==0);
  assert(scope_host_read(R_ID)==0x53434f50);puts("PASS host UI: firmware-generated glyph map, 20 menu entries (hardware selftest deferred), 1000 mode transitions (MMIO model)");return 0;}

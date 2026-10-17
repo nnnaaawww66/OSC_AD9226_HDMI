@@ -49,3 +49,21 @@ for ph in [0,1,2047,0x8fffff,0xf00321]:
  data[4095]=data[4094];assert lib.scope_validate_dds(data,len(data),16777,c.byref(got),c.byref(bad))==0 and bad.value==4095
 results['DMA_DDS_PHASE']='PASS exact phase recovery across fractional boundaries and deliberate sample duplication'
 (out/'analysis_tests.json').write_text(json.dumps(results,indent=2));print('PASS portable C analysis against NumPy; seed=7010')
+
+CB=c.CFUNCTYPE(None,c.c_uint,c.c_uint)
+lib.scope_set_point_sink.argtypes=[CB]
+lib.scope_density.argtypes=[np.ctypeslib.ndpointer(np.uint8,flags='C_CONTIGUOUS'),p16,c.c_uint,c.c_uint,c.c_uint,c.c_int,c.c_uint64,c.c_uint,c.POINTER(c.c_uint32),c.POINTER(c.c_uint32)]
+for fs in [10000000,25000000,50000000,65000000]:
+ for bitrate in [1000000,1000100,2000000,3000000,5000000]:
+  for first in [0,123456789012345,0x1000000000000000]:
+   points=[]
+   callback=CB(lambda x,y:points.append((x,y)))
+   lib.scope_set_point_sink(callback)
+   data=rng.integers(0,4096,128,dtype=np.uint16);h=np.zeros(160*90,np.uint8);hits=c.c_uint32();drop=c.c_uint32()
+   lib.scope_density(h,data,len(data),fs,bitrate,1,first,1000000,c.byref(hits),c.byref(drop))
+   expected=[((((first+i)*bitrate)%(2*fs))*160//(2*fs),(4095-int(data[i]))*89//4095) for i in range(0,128,4)]
+   assert points==expected,(fs,bitrate,first,points[:3],expected[:3])
+lib.scope_set_point_sink(CB())
+results['EYE_PHASE']='PASS 4 sample rates, 1..5Mb/s, +100ppm offset, long-running 64-bit indexes; no CDR claimed'
+(out/'analysis_tests.json').write_text(json.dumps(results,indent=2))
+print('PASS eye-phase mapping including frequency offset and long-run counters')

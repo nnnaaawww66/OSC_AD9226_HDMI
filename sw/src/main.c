@@ -23,7 +23,7 @@ typedef struct {
         offset, encoding, gain;
     double uv_per_code, zero;
 } settings;
-static settings cfg = {DSO, 1,       1,    2048, 8, 0, 0, 10000000, 4096,
+static settings cfg = {DSO, 1,       0,    2048, 8, 0, 0, 10000000, 4096,
                        1,   1000000, 4096, 0,    0, 0, 0, 0,        2048},
                 saved;
 static uint16_t record[SCOPE_N] __attribute__((aligned(64)));
@@ -41,6 +41,7 @@ static unsigned mem_source_sim, segment_sim[SEGMENTS], raster_fault, record_sour
 static uint64_t mem_first_index;
 static uint64_t segment_time[SEGMENTS], first_index;
 static unsigned segment_len[SEGMENTS];
+static uint32_t segment_crc[SEGMENTS];
 static unsigned last_key_sequence;
 static volatile unsigned key_head, key_tail;
 static volatile uint32_t key_queue[16];
@@ -49,9 +50,9 @@ static XScuGic gic;
 static scope_measurements measurement;
 static double fft_hz, fft_db, render_ms, frame_hz;
 static uint64_t last_render, first_render;
-static char message[90] = "SIM SELFTEST / ADC UNCALIBRATED / MEM & SEG LOCKED";
-static unsigned qualified_rate_mask =
-    1; /* G2 HIL evidence is required before higher rates are enabled. */
+static char message[90] = "REAL ADC / UNCALIBRATED / MEM & SEG REQUIRE SELFTEST";
+static unsigned qualified_rate_mask = 15; /* Four clock modes must pass release STA and digital HIL.
+                                             Analog calibration remains separate. */
 static uint64_t now(void) {
     XTime t;
     XTime_GetTime(&t);
@@ -106,6 +107,10 @@ static int apply(void) {
     unsigned old_ctrl = scope_read(R_CTRL);
     if (((old_ctrl >> 1) & 1) != cfg.sim || ((old_ctrl >> 6) & 1) != cfg.encoding) {
         valid_record = 0;
+        memset(&measurement, 0, sizeof(measurement));
+        record_source_sim = cfg.sim;
+        fft_hz = 0;
+        fft_db = -160;
         memset(hist, 0, sizeof(hist));
         memset(wave, 0, sizeof(wave));
         roll_sequence = 0;
@@ -194,14 +199,17 @@ static const char *state_name(unsigned s) {
         return "FAULT";
     }
 }
+static unsigned displayed_source_sim(void) {
+    if (cfg.mode == MEM && mem_valid)
+        return mem_source_sim;
+    if (cfg.mode == SEG && segment_len[cfg.segment])
+        return segment_sim[cfg.segment];
+    return valid_record ? record_source_sim : cfg.sim;
+}
 static void draw_ui(void) {
     memset(screen, ' ', sizeof(screen));
     unsigned s = scope_read(R_STATE);
-    unsigned visible_sim = (cfg.mode == MEM && mem_valid)
-                               ? mem_source_sim
-                               : (cfg.mode == SEG && segment_len[cfg.segment]
-                                      ? segment_sim[cfg.segment]
-                                      : (valid_record ? record_source_sim : cfg.sim));
+    unsigned visible_sim = displayed_source_sim();
     uint32_t err = scope_read(R_ERRORS);
     text(0, 3, "Z7 SCOPE");
     for (unsigned i = 0; i < 7; i++)
@@ -299,6 +307,8 @@ static void draw_ui(void) {
     if (err)
         text(41, 3, "FAULT %08lx  %s %s %s", (unsigned long)err, err & 1 ? "FIFO_OVF" : "",
              err & 2 ? "OVERRANGE" : "", err & 4 ? "HIST_DROP" : "");
+    else if (visible_sim)
+        text(41, 3, "SIM TEST SOURCE ACTIVE - THIS IS NOT THE AD9226 ANALOG INPUT");
     else if (valid_record && measurement.max - measurement.min < 16)
         text(41, 3, "NO SIGNAL / FLAT INPUT - FREQUENCY IS NOT VALID");
     else
@@ -371,7 +381,7 @@ static void upload(void) {
             scope_write(0x40000 + 4 * i, hist[i]);
     for (i = 0; i < 7200; i++)
         scope_write(0x80000 + 4 * i, (uint8_t)screen[i]);
-    scope_write(R_OWNER, 1 | (menu << 1) | (selection << 2));
+    scope_write(R_OWNER, 1 | (menu << 1) | (selection << 2) | (displayed_source_sim() << 7));
     scope_write(R_CRC,
                 scope_crc32(screen, sizeof(screen)) ^ scope_crc32(wave, sizeof(wave)) ^
                     ((cfg.mode == DPX || cfg.mode == EYE) ? scope_crc32(hist, sizeof(hist)) : 0));
@@ -496,6 +506,7 @@ static void process_record(void) {
         uint16_t *dst = (uint16_t *)(uintptr_t)(SEG_BUFFER + seg * SCOPE_N * 2);
         memcpy(dst, record, sizeof(record));
         Xil_DCacheFlushRange((UINTPTR)dst, sizeof(record));
+        segment_crc[seg] = scope_crc32(record, sizeof(record));
         segment_time[seg] = first_index;
         segment_sim[seg] = cfg.sim;
         segment_len[seg] = SCOPE_N;
@@ -506,6 +517,8 @@ static void process_record(void) {
     dirty = 1;
 }
 static int memory_test(void) {
+    mem_valid = 0;
+    mem_gate = 0;
     uint32_t *p = (uint32_t *)DMA_BUFFER;
     unsigned i, n = DMA_BUFFER_BYTES / 4;
     uint64_t begin = now();
@@ -553,7 +566,7 @@ static int memory_capture(int verify_sim) {
     scope_write(R_DMA_START, 2);
     usleep(2000);
     scope_write(R_DMA_LEN, DMA_BUFFER_BYTES / 2);
-    scope_write(R_DMA_START, 1);
+    scope_write(R_DMA_START, verify_sim == 2 ? 5 : 1);
     begin = now();
     while (!dma_irq && !(dma_read(0x34) & 0x1000)) {
         if ((dma_read(0x34) & 0x770) || dma_errors || elapsed_ms(begin) > 2000) {
@@ -574,7 +587,20 @@ static int memory_capture(int verify_sim) {
     }
     const uint16_t *p = (uint16_t *)DMA_BUFFER;
 
-    if (verify_sim) {
+    if (verify_sim == 2) {
+        for (unsigned i = 0; i < DMA_BUFFER_BYTES / 2; i++)
+            if (p[i] != (uint16_t)i) {
+                reply(0, "code=DDR_STRESS_COMPARE index=%u expected=%u actual=%u", i, (uint16_t)i,
+                      p[i]);
+                goto fail;
+            }
+        if (DMA_BUFFER_BYTES / (ms * 1000) < 143.0) {
+            reply(0, "code=DDR_BANDWIDTH measured_MBps=%.3f required_MBps=143",
+                  DMA_BUFFER_BYTES / (ms * 1000));
+            goto fail;
+        }
+    }
+    if (verify_sim == 1) {
         uint32_t phase;
         unsigned bad_index;
         if (!scope_validate_dds(p, DMA_BUFFER_BYTES / 2, 16777, &phase, &bad_index)) {
@@ -583,10 +609,10 @@ static int memory_capture(int verify_sim) {
         }
     }
     uint32_t crc = scope_crc32(p, DMA_BUFFER_BYTES);
-    mem_valid = 1;
+    mem_valid = verify_sim != 2;
     mem_source_sim = cfg.sim;
     mem_first_index = ((uint64_t)scope_read(0xe4) << 32) | scope_read(0xe0);
-    reply(1, "dma=PASS bytes=%u time_ms=%.3f payload_MBps=%.3f crc32=%08lx sim=%u",
+    reply(1, "dma=PASS bytes=%u time_ms=%.3f payload_MBps=%.3f crc32=%08lx test_kind=%u",
           DMA_BUFFER_BYTES, ms, DMA_BUFFER_BYTES / (ms * 1000), (unsigned long)crc, verify_sim);
     if (verify_sim) {
         cfg.sim = old_sim;
@@ -617,14 +643,14 @@ static void selftest(void) {
         reply(0, "code=VIDEO_FRAME_STUCK");
         return;
     }
-    if (!memory_test() || !memory_capture(1)) {
+    if (!memory_test() || !memory_capture(2) || !memory_capture(1)) {
         mem_gate = 0;
         set_message("SELFTEST FAILED / MEM & SEG DISABLED");
         return;
     }
     mem_gate = 1;
-    set_message("SELFTEST PASSED AT CURRENT RATE / HIGH-RATE DDR UNQUALIFIED");
-    reply(1, "selftest=PASS rate=%u higher_rates=UNQUALIFIED", cfg.rate);
+    set_message("DDR HEADROOM + EXACT DMA PASS / ADC VOLTS UNCALIBRATED");
+    reply(1, "selftest=PASS rate=%u ddr_headroom=PASS analog=UNCALIBRATED", cfg.rate);
 }
 static void status(void) {
     reply(
@@ -635,6 +661,46 @@ static void status(void) {
         (unsigned long)scope_read(R_SAMPLES + 4), (unsigned long)scope_read(R_SAMPLES),
         scope_read(R_OTR), scope_read(R_DROP), (unsigned long)scope_read(R_ERRORS),
         scope_read(R_DEAD), mem_gate, key_lost);
+}
+static int change_rate(unsigned index) {
+    static const unsigned rates[] = {10000000, 25000000, 50000000, 65000000};
+    if (index > 3 || !(qualified_rate_mask & (1u << index))) {
+        set_message("ADC RATE NOT QUALIFIED BY RELEASE TIMING / HIL");
+        return 0;
+    }
+    if (scope_read(R_DMA_FLAGS) & (1u << 13)) {
+        set_message("STOP DMA BEFORE RATE CHANGE");
+        return 0;
+    }
+    unsigned old_run = cfg.run;
+    cfg.run = 0;
+    if (!apply()) {
+        cfg.run = old_run;
+        return 0;
+    }
+    usleep(1000);
+    scope_write(R_RATE, index);
+    usleep(1000);
+    if (scope_read(R_RATE) != rates[index]) {
+        cfg.run = old_run;
+        set_message("RATE READBACK FAILED");
+        return 0;
+    }
+    cfg.rate = rates[index];
+    cfg.run = old_run;
+    mem_gate = 0;
+    mem_valid = 0;
+    seg_count = 0;
+    memset(segment_len, 0, sizeof(segment_len));
+    valid_record = 0;
+    memset(&measurement, 0, sizeof(measurement));
+    memset(hist, 0, sizeof(hist));
+    roll_sequence = 0;
+    roll_columns = 0;
+    fft_hz = 0;
+    fft_db = -160;
+    set_message("RATE CHANGED / RUN SELFTEST TO REQUALIFY DDR");
+    return apply();
 }
 static void edit(int direction) {
     unsigned next;
@@ -713,7 +779,8 @@ static void edit(int direction) {
         apply();
         break;
     case 16:
-        set_message("ADC RATE: 10MHz UNTIL G2 TIMING/HIL QUALIFIED");
+        next = cfg.rate == 10000000 ? 0 : cfg.rate == 25000000 ? 1 : cfg.rate == 50000000 ? 2 : 3;
+        change_rate((next + 4 + direction) % 4);
         break;
     case 17:
         cfg.encoding ^= 1;
@@ -763,7 +830,7 @@ static void dispatch(char *line) {
     if (!strcmp(a[0], "help")) {
         reply(
             1,
-            "help ver selftest status measure clocks capture trigger dma dpx errors mode run menu trig adc fft eye cal memory config");
+            "help ver selftest status measure clocks capture trigger dma dpx errors mode run menu trig adc fft eye cal memory config video");
         return;
     }
     if (!strcmp(a[0], "ver")) {
@@ -788,9 +855,39 @@ static void dispatch(char *line) {
         reply(
             1,
             "valid=%u source=%s min=%u max=%u mean=%.4f rms_code=%.4f frequency=%.4f frequency_valid=%u overrange=%u calibrated=%u",
-            valid_record, record_source_sim ? "SIM" : "ADC", measurement.min, measurement.max,
+            valid_record, displayed_source_sim() ? "SIM" : "ADC", measurement.min, measurement.max,
             measurement.mean, measurement.rms, measurement.frequency, measurement.frequency_valid,
             measurement.overrange, cfg.uv_per_code > 0);
+        return;
+    }
+    if (!strcmp(a[0], "segments")) {
+        for (unsigned i = 0; i < SEGMENTS; i++) {
+            const uint16_t *p = (const uint16_t *)(uintptr_t)(SEG_BUFFER + i * SCOPE_N * 2);
+            unsigned crc_ok = 0, sequence_ok = 0;
+            if (segment_len[i]) {
+                Xil_DCacheInvalidateRange((UINTPTR)p, segment_len[i] * 2);
+                crc_ok = scope_crc32(p, segment_len[i] * 2) == segment_crc[i];
+                if (segment_sim[i]) {
+                    uint32_t phase;
+                    unsigned bad;
+                    sequence_ok = scope_validate_dds(p, segment_len[i], 16777, &phase, &bad);
+                }
+            }
+            reply(!segment_len[i] || (crc_ok && (!segment_sim[i] || sequence_ok)),
+                  "segment=%u length=%u first=%llu source=%s crc32=%08lx crc_ok=%u sequence_ok=%u",
+                  i, segment_len[i], (unsigned long long)segment_time[i],
+                  segment_sim[i] ? "SIM" : "ADC", (unsigned long)segment_crc[i], crc_ok,
+                  sequence_ok);
+        }
+        return;
+    }
+    if (!strcmp(a[0], "video")) {
+        reply(1, "frame=%u pixel_crc32=%08lx asset_crc32=%08lx", scope_read(R_FRAME),
+              (unsigned long)scope_read(0xf8), (unsigned long)scope_read(R_CRC));
+        return;
+    }
+    if (n == 2 && !strcmp(a[0], "memory") && !strcmp(a[1], "bandwidth")) {
+        memory_capture(2);
         return;
     }
     if (!strcmp(a[0], "clocks")) {
@@ -885,6 +982,8 @@ static void dispatch(char *line) {
                 goto bad;
             cfg.sim = !strcmp(a[2], "sim");
             reply(apply(), "source=%s", cfg.sim ? "SIM" : "ADC");
+            set_message(cfg.sim ? "SIM TEST SOURCE ACTIVE"
+                                : "REAL ADC ACTIVE / VOLTAGE CALIBRATION REQUIRED");
             return;
         }
         if (!strcmp(a[1], "rate")) {
@@ -899,14 +998,7 @@ static void dispatch(char *line) {
                 reply(0, "code=RATE_UNQUALIFIED requested=%uM G2_HIL_REQUIRED", rate);
                 return;
             }
-            cfg.run = 0;
-            apply();
-            usleep(1000);
-            scope_write(R_RATE, index);
-            usleep(1000);
-            cfg.rate = rate * 1000000;
-            cfg.run = 1;
-            reply(apply(), "rate=%u", cfg.rate);
+            reply(change_rate(index), "rate=%u mem_gate=%u", cfg.rate, mem_gate);
             return;
         }
         if (!strcmp(a[1], "encoding")) {
@@ -979,6 +1071,14 @@ static void dispatch(char *line) {
             }
             if (saved.mode >= MEM && !mem_gate) {
                 reply(0, "code=DDR_GATE_CLOSED");
+                return;
+            }
+            unsigned saved_index = saved.rate == 10000000   ? 0
+                                   : saved.rate == 25000000 ? 1
+                                   : saved.rate == 50000000 ? 2
+                                                            : 3;
+            if (saved.rate != cfg.rate && !change_rate(saved_index)) {
+                reply(0, "code=CONFIG_RATE_RESTORE");
                 return;
             }
             cfg = saved;

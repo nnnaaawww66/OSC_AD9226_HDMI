@@ -7,3 +7,6 @@ set_max_delay -datapath_only 10.000 -from [get_cells -hier -filter {NAME =~ */ho
 set_max_delay -datapath_only 10.000 -from [get_cells -hier -filter {NAME =~ */display/meta_hold_reg*}] -to [get_cells -hier -filter {NAME =~ */display/meta_pix_reg*}]
 
 set_false_path -to [get_pins -of_objects [get_cells -hier -filter {ASYNC_REG == TRUE}] -filter {REF_PIN_NAME == PRE || REF_PIN_NAME == CLR}]
+
+# UG472 BUFGMUX_CTRL S inputs permit asynchronous glitch-free selection.
+set_false_path -to [get_pins -of_objects [get_cells -hier -filter {NAME =~ clocks/* && REF_NAME == BUFGCTRL}] -filter {REF_PIN_NAME == S0 || REF_PIN_NAME == S1}]
