@@ -73,7 +73,7 @@ features = [
     feature('DDR / MEM / SEG', 'PASS_WITH_DOCUMENTED_LIMITS',
             '2MiB pattern, >=143MB/s stress and exact 1Mi DDS prerequisite at each rate; finite 1Mi MEM; eight 16K segments with CRC and timestamps. Acquisition deadtime is counted.',
             [p+'functional_hil.log', p+'ila/ila_sys_last.csv']),
-    feature('Two-key control / CLI', 'PASS_DIGITAL_PHYSICAL_LIMITED',
+    feature('Two-key control / CLI', 'LIMITED',
             'RTL debounce/combination tests, common firmware 21-item menu paths and JTAG commands. User confirmed physical keys produced seven-mode, RUN/STOP and ADC/SIM changes in the preserved log. Full physical menu campaign and UART cable not claimed.',
             [e+'simulation/summary.json', e+'ui_sim/host_test.log',p+'soak_manual_source_change_attempt.log']),
     feature('ILA / actual pixel CRC / errors', 'PASS',
