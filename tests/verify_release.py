@@ -7,7 +7,9 @@ import argparse
 import hashlib
 import json
 import re
+import struct
 import subprocess
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'results/2026-10-17'
@@ -36,6 +38,26 @@ for item in seal['files']:
     assert len(data) == item['bytes']
     assert hashlib.sha256(data).hexdigest() == item['sha256'], item['name']
 assert (OUT / 'build_revision.txt').read_text().strip() == seal['rtl_revision']
+with zipfile.ZipFile(OUT / 'scope_top.hdf') as handoff:
+    for name in ('scope_top.bit', 'ps7_init.tcl'):
+        assert handoff.read(name) == (OUT / name).read_bytes(), f'HDF mismatch: {name}'
+elf_ranges = {}
+for name, lower, upper in (('scope.elf', 0x00100000, 0x08000000),
+                           ('scope_diag.elf', 0, 0x0002f000)):
+    data = (OUT / name).read_bytes()
+    assert data[:7] == b'\x7fELF\x01\x01\x01' and struct.unpack_from('<H', data, 18)[0] == 40
+    entry, offset = struct.unpack_from('<II', data, 24)
+    size, count = struct.unpack_from('<HH', data, 42)
+    assert lower <= entry < upper
+    loads = []
+    for i in range(count):
+        kind, file_offset, va, pa, file_size, memory_size, flags, align = struct.unpack_from('<IIIIIIII', data, offset+i*size)
+        if kind == 1:
+            assert lower <= pa == va and pa+memory_size <= upper, (name, hex(pa), hex(memory_size))
+            assert file_offset+file_size <= len(data) and file_size <= memory_size
+            loads.append({'address': hex(pa), 'bytes': memory_size})
+    assert loads
+    elf_ranges[name] = loads
 
 sim = json.loads(read(OUT / 'simulation/summary.json'))
 expected_sim = {'capture', 'mailbox', 'video', 'vga', 'keys', 'tmds',
@@ -95,6 +117,7 @@ if args.require_soak:
 result = {'status': 'PASS' if soak['status'] == 'PASS' else 'PENDING_SOAK',
           'artifact_hashes': 'PASS', 'rtl_revision': seal['rtl_revision'],
           'firmware_revision': observed[2],
+          'HDF_bit_and_PS7_match': True, 'ELF_load_ranges': elf_ranges,
           'RTL_tests': len(sim), 'C_NumPy': 'PASS', 'WNS_ns': float(wns),
           'WHS_ns': float(whs), 'ADC_input_paths_per_rate_and_delay': 13,
           'reviewed_CDC_Critical_rows': 159, 'unreviewed_CDC_Critical_rows': 0,
