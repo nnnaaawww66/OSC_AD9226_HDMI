@@ -2,15 +2,15 @@
 
 ## 首次启动
 
-接线见Pin_Map.csv。HDMI接板载TMDS接口。连接板载USB-JTAG以及CH340E Type-C UART，串口115200 8N1。当前发布配置硬件固定10MSa/s，高速选择保持关闭。先运行构建脚本，再使用program.ps1。只有正式数字时序门禁通过才产生用于下载的bit；任何硬件验收项仍应以真实屏幕、串口与仪器记录为准。
+接线见Pin_Map.csv。HDMI接板载TMDS接口。本次按用户要求只连接JTAG；UART代码仍支持115200 8N1。正常启动为10MSa/s真实ADC，其他采样档位必须以本次正式实现报告和实板日志为准。先运行构建脚本，再使用program.ps1。只有正式数字时序门禁通过才产生用于下载的bit；任何硬件验收项仍应以真实屏幕、串口与仪器记录为准。
 
-上电默认10MSa/s SIM，真实输入切换使用菜单或`adc source real`。内部SIM是可重复DDS三角波，便于区分数字链路问题和ADC/模拟输入问题。未加载PS ELF时，PL也能显示诊断页和16K包络。若DDR初始化超时，JTAG脚本会选择OCM恢复控制台，其命令为s/a/r/p/v，不能误认为完整七模式固件。
+上电默认10MSa/s真实ADC。只有显式执行`adc source sim`才启用内部测试源；画面有持续SIM告警条。内部SIM是可重复DDS三角波，便于区分数字链路问题和ADC/模拟输入问题。未加载PS ELF时，PL也能显示诊断页和16K包络。若DDR初始化超时，JTAG脚本会选择OCM恢复控制台，其命令为s/a/r/p/v，不能误认为完整七模式固件。
 
 ## 两键
 
 KEY1短按下移，长按上移。KEY2短按修改当前项；菜单打开时长按返回，菜单关闭时长按反向修改当前项。双键短按开关菜单，双键长按RUN/STOP。组合按下有优先权，不额外生成两个单键短按。
 
-21项菜单覆盖模式、运行、来源、触发类型/边沿/阈值/迟滞、时基、FFT点数与窗、眼图码率、垂直增益、零点、回放偏移、段号、MEM采集、Single重新武装、ADC速率、编码、DDR自检和校准比例。高级速率及MEM/SEG资格不满足时给出原因，不允许按键绕过闸门。
+21项菜单覆盖模式、运行、来源、触发类型/边沿/阈值/迟滞、时基、FFT点数与窗、眼图码率、垂直增益、零点、回放偏移、段号、MEM采集、Single重新武装、ADC速率、编码、DDR自检和校准比例。速率切换经停止、配置应答、无DMA活动、切时钟、稳定等待、读回及恢复运行；MEM/SEG资格不满足时给出原因，不允许按键绕过闸门。
 
 ## 常用串口命令
 
@@ -40,6 +40,12 @@ fft n 4096
 fft window hann
 mode roll
 memory test
+memory bandwidth
+video
+segments
+adc rate 25
+adc rate 50
+adc rate 65
 memory capture
 mode mem
 mode seg
@@ -83,3 +89,17 @@ HDMI全黑但串口可用：读取frame/lock，检查实际720p支持和线缆�
 如果 CPU 在旧版 AXI 访问中挂起，新的下载脚本会先执行 system reset 恢复调试，再重新配置和初始化。重复下载不会因为处理器已停止而中断。USB HDMI 抓图可用 `python tests/hil/capture_hdmi.py --output results/2026-10-17/hil/hdmi.png`；该脚本只访问名为 USB3 Video 的采集设备。
 
 2026-10-17 实板修复版：默认仍采集 16K，显示触发点附近 4K（40.96us/div @10MSa/s），可在 TIME SPAN 调整。只接 JTAG 时，`./jtag.ps1 measure` 返回冻结记录的 min/max、code RMS、频率及有效标志。电压量程未标定时保持 N/A。
+
+## 真实输入与频率可信度
+
+用户已确认当前模拟输入浮空。浮空没有已知幅度或可用于验收的稳定频率；不应把内部DDS的10kHz当作ADC真实读数。正常运行默认真实ADC，低幅度/过量程/不足三个交叉点/周期标准差超过平均周期10%的记录均不输出有效频率。界面仍保留实际码值范围与波形；没有电压比例时Vpp、RMS和V/div显示N/A。ADC_CODE的均值及RMS可通过measure读取。
+
+`selftest`会临时选SIM，先检查2MiB DDR模式，再运行SYS域递增码的DDR带宽压力（要求≥143MB/s，即65MSa/s×2Byte的110%），最后逐样本核对1Mi点DDS序列。结束恢复调用前的数据源及RUN状态。自检产生的MEM记录标为SIM，不能作为真实ADC波形使用。`memory bandwidth`会覆盖深记录缓冲并使原MEM记录失效；`memory test`也会使MEM资格和记录失效。
+
+修改采样率会清除MEM/SEG资格及旧记录，须在当前档位重新运行selftest。config save/load只保留易失RAM配置，load同时恢复实际硬件时钟，不写Flash。默认10MSa/s便于开始调试；已实现四档时钟不等于已经标定模块模拟带宽。
+
+`segments`逐段返回长度、64位首样本序号、数据来源、CRC和内部DDS顺序校验；真实ADC段只做CRC一致性，不能把任意输入与DDS金样本比较。`video`返回PL实际RGB帧CRC及软件显示资产CRC；摄像采集卡的色彩转换会改变像素，不能直接要求采集卡PNG的CRC等于PL原始RGB CRC。
+
+ILA操作和位域见Debug_ILA.md。最终板级性能、时间条件和测试日志见Acceptance.json及Delivery_Report.md。
+
+下载前program.ps1会核对已封存bit/HDF/LTX/ELF/PS初始化及构建标记的SHA256，避免新旧输出混用。build.ps1在SDK与最新HDF一致后自动封存；缺少资格标记或任一文件变化时拒绝下载并指出文件名。

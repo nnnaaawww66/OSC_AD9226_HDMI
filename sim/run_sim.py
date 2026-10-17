@@ -7,6 +7,7 @@ tests={'capture':['scope_capture.v'],'mailbox':['reset_sync.v'],'video':['scope_
 tests['fallback']=tests['axi']
 tests['adc']=tests['axi']
 tests['clocks']=['scope_clocks.v']
+tests['adc_latency']=[]
 results={}
 for name,rtl in tests.items():
     if len(sys.argv)>1 and name not in sys.argv[1:]:continue

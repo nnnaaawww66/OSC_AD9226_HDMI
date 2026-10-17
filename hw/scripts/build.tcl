@@ -1,6 +1,7 @@
 set root [file normalize [file join [file dirname [info script]] ../..]]
 cd $root
 set results $root/results/2026-10-17
+file delete -force $results/hardware_build.ok
 open_project $root/OSC_ad9226_hdmi.xpr
 set_param general.maxThreads 4
 source $root/hw/scripts/setup_ila.tcl
@@ -30,6 +31,11 @@ source $root/hw/scripts/assert_adc_clocks.tcl
 set inf [open [get_property DIRECTORY [get_runs impl_1]]/runme.log r]
 set impl_log [read $inf];close $inf
 if {[string first "CRITICAL WARNING:" $impl_log]>=0} {error "Implementation critical-warning gate failed; inspect runme.log"}
+foreach rate {10 25 50 65} {
+    foreach delay {max min} {
+        report_timing -from [get_ports {adc_data[*] adc_otr}] -group adc_rx$rate -delay_type $delay -max_paths 13 -file $results/adc_${rate}_${delay}.rpt
+    }
+}
 report_utilization -file $results/utilization.rpt
 report_timing_summary -delay_type min_max -report_unconstrained -file $results/timing_summary.rpt
 report_clock_interaction -file $results/clock_interaction.rpt
@@ -54,5 +60,6 @@ write_bitstream -force $results/scope_top.bit
 file copy -force $results/scope_top.bit [get_property DIRECTORY [get_runs impl_1]]/scope_top.bit
 write_hwdef -force -file $results/scope_design.hwdef
 write_sysdef -force -hwdef $results/scope_design.hwdef -bitfile $results/scope_top.bit -file $results/scope_top.hdf
+set success [open $results/hardware_build.ok w];puts $success "HARDWARE_BUILD_PASS $code_sha [clock format [clock seconds]]";close $success
 close_project
 

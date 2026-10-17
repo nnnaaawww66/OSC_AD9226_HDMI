@@ -8,6 +8,12 @@ proc check {cmd expected} {
  if {![string match *$expected* $response]} {error "Unexpected response: $cmd => $response"}
  return $response
 }
+proc sample_snapshot {} {
+ set t0 [clock milliseconds]
+ set v [mrd -value -address-space AP0 0x40000014 2]
+ set t1 [clock milliseconds]
+ return [list [expr {wide([lindex $v 1])*4294967296+wide([lindex $v 0])}] [expr {($t0+$t1)/2.0}]]
+}
 if {[catch {
 connect -url tcp:127.0.0.1:3121
 targets -set -filter {name == "APU"}
@@ -24,7 +30,12 @@ foreach rate {10 25 50 65} {
  if {abs($hz-$target)>$target*.003} {error "SIM frequency mismatch: $hz expected $target"}
  foreach mode {dso dpx eye fft roll mem seg} {check "mode $mode" "mode=[string toupper $mode]";after 100;check status errors=00000000}
  check {run 0} run=0
- check segments sequence_ok=1
+ set segments [check segments sequence_ok=1]
+ set stamps {}
+ foreach {match stamp} [regexp -all -inline {first=([0-9]+)} $segments] {lappend stamps $stamp}
+ if {[llength $stamps]!=8} {error "Eight segment timestamps were not returned"}
+ set stamps [lsort -integer $stamps]
+ for {set j 1} {$j<8} {incr j} {if {[lindex $stamps $j]-[lindex $stamps [expr {$j-1}]]<16384} {error "Segment timestamps overlap"}}
  check {run 1} run=1
  check {mode dso} mode=DSO
  check {adc source real} source=ADC
@@ -33,6 +44,10 @@ foreach rate {10 25 50 65} {
  check video pixel_crc32=
  check dma drop=0
  check clocks "adc=[expr {$rate*1000000}]"
+ set first [sample_snapshot];after 2000;set last [sample_snapshot]
+ set measured [expr {([lindex $last 0]-[lindex $first 0])*1000.0/([lindex $last 1]-[lindex $first 1])}]
+ puts $out "RATE_COUNTER requested_MSa=$rate measured_Sa_s=$measured";flush $out
+ if {abs($measured-$rate*1000000.0)>$rate*1000000.0*.025} {error "ADC clock counter mismatch at $rate: $measured"}
  puts "PRD_RATE_PASS $rate"
 }
 check {adc rate 10} rate=10000000

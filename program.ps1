@@ -1,5 +1,6 @@
 $ErrorActionPreference='Stop'
 $root=$PSScriptRoot
+& (Join-Path $root "hw/scripts/verify_artifacts.ps1") -Root $root
 foreach($name in 'scope_top.bit','scope_top.hdf','scope.elf','scope_diag.elf','ps7_init.tcl'){
  if(-not(Test-Path -LiteralPath (Join-Path $root "results\2026-10-17\$name"))){throw "Missing qualified output: $name"}
 }

@@ -10,6 +10,9 @@ foreach rate {10 25 50 65} {
   foreach delay {max min} {
    set paths [get_timing_paths -quiet -delay_type $delay -from $port -group adc_rx$rate]
    if {[llength $paths]!=1} {error "ADC_CLOCK_GATE unconstrained $port rate=$rate delay=$delay"}
+   set required [get_property REQUIREMENT $paths]
+   set expected [expr {$delay eq "max" ? 1000.0/$rate+($rate>=50?3.846:0) : ($rate>=50?3.846:0)}]
+   if {abs($required-$expected)>.005} {error "ADC_CLOCK_GATE incorrect conversion edge $port rate=$rate delay=$delay required=$required expected=$expected"}
   }
  }
 }

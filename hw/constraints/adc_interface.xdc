@@ -18,3 +18,9 @@ create_generated_clock -name adc_rx65 -source [get_pins clocks/adc_mmcm/CLKOUT6]
 set_input_delay -clock adc_fwd65 -max 10.000 -add_delay [get_ports {adc_data[*] adc_otr}]
 set_input_delay -clock adc_fwd65 -min 3.500 -add_delay [get_ports {adc_data[*] adc_otr}]
 set_clock_groups -physically_exclusive -group [get_clocks {adc_rx10 adc_fwd10}] -group [get_clocks {adc_rx25 adc_fwd25}] -group [get_clocks {adc_rx50 adc_fwd50}] -group [get_clocks {adc_rx65 adc_fwd65}]
+# Early 50/65MHz receive edge samples PREVIOUS forwarded conversion, not the newly launched one.
+# Setup is one full sample period + receive phase. Hold is deliberately NOT compensated:
+# it must check that the next conversion cannot corrupt this early receive edge.
+# These exceptions apply only to the 13 external input paths; internal paths stay single-cycle.
+set_multicycle_path 2 -setup -from [get_ports {adc_data[*] adc_otr}] -to [get_clocks adc_rx50]
+set_multicycle_path 2 -setup -from [get_ports {adc_data[*] adc_otr}] -to [get_clocks adc_rx65]

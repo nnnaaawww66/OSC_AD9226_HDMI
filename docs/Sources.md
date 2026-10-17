@@ -14,3 +14,5 @@
 - AMD UG585： https://docs.amd.com/r/en-US/ug585-zynq-7000-SoC-TRM/PS-PL-AXI-Interfaces
 
 模拟模块的电源接口、前端增益和MODE绑线无法由芯片手册反推，故这些字段保留为用户陈述/待标定。所有峰值带宽计算和资源估算均不等于实测。
+
+- AMD UG472 v1.14（2018-07-30），图2-13/2-14 BUFGMUX_CTRL及MMCM相位资源：https://docs.amd.com/api/khub/documents/1kFbRqzm2fhwGy~cLQG2yA/content
