@@ -785,11 +785,12 @@ static void selftest(void) {
     reply(1, "selftest=PASS rate=%u ddr_headroom=PASS analog=UNCALIBRATED", cfg.rate);
 }
 static void status(void) {
+    static const char *states[]={"IDLE","PREFILL","ARMED","POST","HOLD","FAULT","FAULT","FAULT"};
     reply(
         1,
         "mode=%s run=%u source=%s rate=%u state=%s frame=%u samples=%lu:%08lx otr=%u drop=%u errors=%08lx dead=%u mem_gate=%u irq_lost=%u",
         modes[cfg.mode], cfg.run, cfg.sim ? "SIM" : "ADC", cfg.rate,
-        state_name(scope_read(R_STATE)), scope_read(R_FRAME),
+        states[(scope_read(R_STATE)>>1)&7], scope_read(R_FRAME),
         (unsigned long)scope_read(R_SAMPLES + 4), (unsigned long)scope_read(R_SAMPLES),
         scope_read(R_OTR), scope_read(R_DROP), (unsigned long)scope_read(R_ERRORS),
         scope_read(R_DEAD), mem_gate, key_lost);
