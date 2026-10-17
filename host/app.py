@@ -45,7 +45,9 @@ class Window(QMainWindow):
         self.worker=SerialWorker();self.offline=offline;self.online=False;self.csv_values=None;self.current_table=None;self.confirmed_table=None
         self.worker.response.connect(self.received);self.worker.failed.connect(self.error);self.worker.connected.connect(self.connection);self.worker.progress.connect(lambda v:self.progress.setValue(v));self.worker.applied.connect(self.applied)
         base=QWidget();self.setCentralWidget(base);root=QVBoxLayout(base);root.setContentsMargins(22,18,22,18);root.setSpacing(12)
-        bar=QHBoxLayout();title=QLabel('Z7 LAB');title.setObjectName('brand');bar.addWidget(title);bar.addWidget(QLabel('独立 ADC / DAC · 720p HDMI 控制'));bar.addStretch()
+        bar=QHBoxLayout();title=QLabel('Z7 LAB');title.setObjectName('brand');bar.addWidget(title);bar.addWidget(QLabel('独立 ADC / DAC'));bar.addStretch()
+        bar.addWidget(self.button('HDMI: ADC',lambda:self.send('page adc')));bar.addWidget(self.button('HDMI: DAC',lambda:self.send('page dac')))
+        stop_button=self.button('停止 DAC',self.worker.stop_output);stop_button.setStyleSheet('background:#8e3547;border-color:#d26579');bar.addWidget(stop_button)
         self.ports=QComboBox();self.ports.setMinimumWidth(210);self.scan_ports();bar.addWidget(self.ports);bar.addWidget(self.button('刷新串口',self.scan_ports));self.connect_btn=self.button('连接',self.toggle_connection);bar.addWidget(self.connect_btn);root.addLayout(bar)
         self.status=QLabel('离线 · 选择板卡串口后连接。所有电压均需区分标称与校准。');self.status.setObjectName('status');root.addWidget(self.status)
         self.tabs=QTabWidget();root.addWidget(self.tabs,1);self.build_adc();self.build_dac();self.build_diagnostics()
