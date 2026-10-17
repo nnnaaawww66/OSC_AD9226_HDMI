@@ -32,4 +32,5 @@ for first,last in zip(states,states[1:]):
  dwell[first[1]]=dwell.get(first[1],0)+dt
  run_dwell[first[2]]+=dt
 result={'status':'PASS','duration_ms':duration,'observations':len(rows),'configured_rate_sps':65000000,'measured_counter_slope_sps':adc_rate,'measured_video_fps':fps,'maximum_observation_gap_ms':int(np.diff(v[:,0]).max()),'samples_observed':int(v[-1,5]-v[0,5]),'video_frames_observed':int(v[-1,4]-v[0,4]),'OTR_first_last':[int(v[0,6]),int(v[-1,6])],'DMA_drop':0,'error_flags':0,'mode_observed_dwell_ms':dwell,'RUN_observed_ms':run_dwell[1],'STOP_observed_ms':run_dwell[0],'input':'User-confirmed floating analog input','scope':'One-hour system stability: ADC input clock/sample counter, real source selection, firmware and video, including observed mode and RUN/STOP operations. STOP time is not claimed as active record acquisition. No continuous DDR ring or calibrated analog reference is claimed.'}
+result['first_observation_epoch_ms']=int(v[0,0]);result['last_observation_epoch_ms']=int(v[-1,0])
 (folder/'soak_analysis.json').write_text(json.dumps(result,indent=2),encoding='utf-8');print(json.dumps(result,indent=2))

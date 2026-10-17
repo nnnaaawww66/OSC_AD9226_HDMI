@@ -13,7 +13,9 @@
 
 ## 保留的测试中断记录
 
-`soak_counter_parse_first_attempt.log` 为上述 Tcl 解析问题；`soak_jtag_disconnect_attempt.log` 为 USB JTAG 在 Windows 中消失后的观测中断；`soak_manual_source_change_attempt.log` 为用户确认的物理按键切到 SIM。它们均不计入成功长测，完整的一小时须由新的 `soak.log` 和分析记录独立证明。
+`soak_counter_parse_first_attempt.log` 为上述 Tcl 解析问题；`soak_jtag_disconnect_attempt.log`、`soak_second_usb_disconnect_attempt.log` 为 USB JTAG 在 Windows 中消失后的观测中断；`soak_manual_source_change_attempt.log` 为用户确认的物理按键切到 SIM。它们均不计入成功长测，完整的一小时须由新的 `soak.log` 和分析记录独立证明。
+
+第二次 USB 断开后直接采集的 `HDMI_JTAG_disconnected.png` 显示固件界面、视频和采集计数继续增长，断开前错误为0。上游原为 VID_05E3/PID_0610 USB Hub；用户换口后确认为 ROOT_HUB30 直连。重连后重新装载并开始新的完整长测，同时用独立 USB HDMI 流检查界面持续更新。此记录不把 USB 断开归因于已证实的 FPGA 错误，也不把多段观测拼接为连续一小时。
 
 ## 当前资格边界
 

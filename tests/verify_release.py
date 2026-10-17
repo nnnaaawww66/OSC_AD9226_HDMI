@@ -113,8 +113,16 @@ if (HIL / 'soak_analysis.json').exists():
     soak = json.loads(read(HIL / 'soak_analysis.json'))
 if args.require_soak:
     assert soak['status'] == 'PASS', 'One-hour soak has not completed'
+hdmi = {'status': 'PENDING'}
+if (HIL / 'hdmi_endurance_result.json').exists():
+    if json.loads(read(HIL / 'hdmi_endurance_result.json'))['status'] == 'PASS':
+        subprocess.run([__import__('sys').executable, str(ROOT / 'tests/hil/analyze_hdmi_endurance.py')], check=True)
+        hdmi = json.loads(read(HIL / 'hdmi_endurance_analysis.json'))
+if args.require_soak:
+    assert hdmi['status'] == 'PASS', 'Independent HDMI endurance has not completed'
+    assert hdmi['first_observation_epoch_ms'] >= soak['first_observation_epoch_ms'], 'HDMI evidence predates this board run'
 
-result = {'status': 'PASS' if soak['status'] == 'PASS' else 'PENDING_SOAK',
+result = {'status': 'PASS' if soak['status'] == hdmi['status'] == 'PASS' else 'PENDING_SOAK',
           'artifact_hashes': 'PASS', 'rtl_revision': seal['rtl_revision'],
           'firmware_revision': observed[2],
           'HDF_bit_and_PS7_match': True, 'ELF_load_ranges': elf_ranges,
@@ -122,7 +130,7 @@ result = {'status': 'PASS' if soak['status'] == 'PASS' else 'PENDING_SOAK',
           'WHS_ns': float(whs), 'ADC_input_paths_per_rate_and_delay': 13,
           'reviewed_CDC_Critical_rows': 159, 'unreviewed_CDC_Critical_rows': 0,
           'mode_transitions_on_board': 1000, 'warm_boots': boots,
-          'ILA': 'PASS', 'clean_reconstruction': 'PASS', 'soak': soak,
+          'ILA': 'PASS', 'clean_reconstruction': 'PASS', 'soak': soak, 'HDMI_endurance': hdmi,
           'analog_qualification': 'LIMITED: floating input, no calibrated reference',
           'UART': 'User requested JTAG only; physical UART not exercised'}
 (HIL / 'release_verification.json').write_text(json.dumps(result, indent=2), encoding='utf-8')

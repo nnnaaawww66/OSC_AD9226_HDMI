@@ -31,6 +31,8 @@ $env:PATH = 'C:\MinGW64\bin;' + $env:PATH
 & D:/Anaconda/python.exe tests/hil/analyze_soak.py
 ```
 
+为独立核查实际视频接收，可在 JTAG 长测启动后，用另一个终端运行 `tests/hil/hdmi_endurance.py`，结束后运行 `tests/hil/analyze_hdmi_endurance.py`。它持续占用命名设备 USB3 Video，勿同时打开相机或其他采集脚本；默认3605秒。每秒记录固件头栏CRC及SIM告警像素，每10分钟保存实际帧，固件头栏5秒不变即失败。30fps采集吞吐与板上60Hz视频时钟分别记录。小于一小时的 `--seconds` 只能得到 SHORT_TEST_PASS，不能作为正式长测资格。
+
 `prd_completion.tcl` 验证四档自检、七模式、八段 CRC/时间戳、配置真实速率恢复及 1000 次切换。SIM 用于精确数字金样本，最后恢复 REAL；失败也尝试恢复 REAL/DSO/Auto/RUN，恢复错误会保留。
 
 `soak.tcl` 默认 3605 秒，初始选择 REAL / 65MSa/s / RUN，并进行自检及真实 MEM 采集。保持供电、JTAG 和来源/速率；切到 SIM 或其他速率会中止资格记录。RUN/STOP 和模式状态会进入原始日志；STOP 时间不冒充有效记录采集时间。分析必须看到完整 PASS 标记以及至少 3600000ms 的实际观测跨度，检查视频/原始 ADC 样本计数、心跳、锁、错误和丢样。中断记录另外命名，不能拼接成一小时。

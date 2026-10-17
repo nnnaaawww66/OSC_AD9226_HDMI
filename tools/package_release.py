@@ -53,7 +53,7 @@ excluded = {'HDMI_REAL_baseline.png','release_7378052_console.log',
             'ila_analysis.log','ila_capture_console.log','ila_capture.log',
             'ila_active_capture_console.log','ila_active_capture.log'}
 for path in hil.rglob('*'):
-    if path.is_file() and path.name not in excluded and path.suffix in {'.png','.json','.log','.rpt','.txt','.csv','.ila','.tcl'}:
+    if path.is_file() and path.name not in excluded and path.suffix in {'.png','.json','.jsonl','.log','.rpt','.txt','.csv','.ila','.tcl'}:
         add(path)
 add(result/'hil/jtag_acceptance.log')
 for path in (root/'sw/sdk2018/scope_bsp').rglob('*'):
