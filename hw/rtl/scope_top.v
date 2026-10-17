@@ -6,6 +6,8 @@ module scope_top
      input wire [11 : 0] adc_data,
      input wire adc_otr,
      output wire adc_clk,
+     output wire dac_clk,
+     output wire [13:0] dac_data,
      output wire hdmi_clk_p, hdmi_clk_n,
      output wire [2 : 0] hdmi_data_p, hdmi_data_n,
      inout wire [14 : 0] DDR_addr,
@@ -40,6 +42,13 @@ module scope_top
                     .Q(adc_clk),
                     .R(!locked_adc),
                     .S(1'b0));
+    // DAC clock is the board reference through its own global buffer. ADC rate,
+    // trigger, capture, source and run/stop never gate or reset this clock.
+    wire dac_clock;
+    BUFG dac_buf(.I(clk_50m),.O(dac_clock));
+    ODDR #(.DDR_CLK_EDGE("SAME_EDGE"),.INIT(1'b0),.SRTYPE("ASYNC"))
+      dac_forward(.C(dac_clock),.CE(1'b1),.D1(1'b1),.D2(1'b0),
+                  .Q(dac_clk),.R(1'b0),.S(1'b0));
     wire [23 : 0] rgb;
     wire hs, vs, de, video_rst;
     reset_sync vr(.clk(clk_pixel),
@@ -70,6 +79,7 @@ module scope_top
                       .sys_locked(locked_adc),
                       .sys_reset(!locked_adc),
                       .adc_clk_in(adc_internal),
+                      .dac_clock(dac_clock),.dac_data(dac_data),
                       .pixel_clk(clk_pixel),
                       .adc_data(adc_data),
                       .adc_otr(adc_otr),

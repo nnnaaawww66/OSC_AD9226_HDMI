@@ -1,4 +1,5 @@
 source $root/hw/scripts/assert_adc_clocks.tcl
+source $root/hw/scripts/assert_dac.tcl
 set inf [open [get_property DIRECTORY [get_runs impl_1]]/runme.log r]
 set impl_log [read $inf];close $inf
 if {[string first "CRITICAL WARNING:" $impl_log]>=0} {error "Implementation critical-warning gate failed; inspect runme.log"}

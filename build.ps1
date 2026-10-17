@@ -15,4 +15,8 @@ $sdkStarted=Get-Date
 & $xsct (Join-Path $projectRoot 'sw\scripts\release_sdk.tcl')
 if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $projectRoot 'results\2026-10-17\sdk_build.ok')) -or (Get-Item -LiteralPath (Join-Path $projectRoot 'results\2026-10-17\sdk_build.ok')).LastWriteTime -lt $sdkStarted){throw 'SDK build failed; inspect compiler output'}
 & (Join-Path $projectRoot 'hw/scripts/seal_release.ps1') -Root $projectRoot
+$bootStarted=Get-Date
+& $xsct (Join-Path $projectRoot 'sw\scripts\build_boot.tcl')
+if($LASTEXITCODE -ne 0 -or -not(Test-Path -LiteralPath (Join-Path $projectRoot 'boot\BOOT.BIN')) -or (Get-Item -LiteralPath (Join-Path $projectRoot 'boot\BOOT.BIN')).LastWriteTime -lt $bootStarted){throw 'Boot image build failed'}
+& (Join-Path $projectRoot 'hw\scripts\seal_boot.ps1') -Root $projectRoot
 Write-Host 'Build complete. Inspect Acceptance.json before claiming hardware qualification.'

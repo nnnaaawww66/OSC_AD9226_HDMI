@@ -11,7 +11,7 @@ module scope_display
      input wire [7 : 0] hist_data,
      input wire text_we,
      input wire [12 : 0] text_addr,
-     input wire [7 : 0] text_data,
+     input wire [15 : 0] text_data,
      input wire commit,
      input wire [31 : 0] meta,
      output wire pending,
@@ -44,8 +44,8 @@ module scope_display
     end
     (* ram_style = "block" *) reg [19 : 0] wave[0 : 2047];
     (* ram_style = "block" *) reg [7 : 0] histogram[0 : 32767];
-    (* ram_style = "block" *) reg [7 : 0] characters[0 : 16383];
-    (* rom_style = "block" *) reg [7 : 0] font[0 : 2047];
+    (* ram_style = "block" *) reg [15 : 0] characters[0 : 8191];
+    (* rom_style = "block" *) reg [15 : 0] font[0 : 8207];
     initial begin
         $readmemh("font.mem", font);
         $readmemh("screen.mem", characters);
@@ -97,8 +97,8 @@ module scope_display
                 wave[{bank_sys, wave_addr}] <= wave_data;
             if (hist_we && !pending && hist_addr < HW * HH)
                 histogram[{bank_sys, hist_addr[13 : 0]}] <= hist_data;
-            if (text_we && !pending && text_addr < 7200)
-                characters[{bank_sys, text_addr}] <= text_data;
+            if (text_we && !pending && text_addr < 2400)
+                characters[{bank_sys, text_addr[11:0]}] <= text_data;
         end
     end
     always @(posedge pixel_clk) begin
@@ -123,31 +123,24 @@ module scope_display
         end
     end
     // Pixel pipeline: address -> memory -> font -> composite; sync follows every stage.
-    wire plot = x >= 20 && x < 980 && y >= 70 && y < 610;
-    wire [9 : 0] wx = plot ? x - 20 : 0;
-    wire [8 : 0] hx = plot ? (x - 20) / 6 : 0;
+    wire plot = x >= 80 && x < 1040 && y >= 70 && y < 610;
+    wire [9 : 0] wx = plot ? x - 80 : 0;
+    wire [8 : 0] hx = plot ? (x - 80) / 6 : 0;
     wire [7 : 0] hy = plot ? (y - 70) / 6 : 0;
     reg [11 : 0] x0 = 0, y0 = 0;
     reg [19 : 0] hx_product = 0, hy_product = 0;
     reg [9 : 0] wx_address = 0;
     reg [12 : 0] char_address = 0;
-    reg [3 : 0] glyph_row0 = 0;
-    reg [2 : 0] glyph_bit0 = 0;
-    wire title_glyph = x >= 24 && x < 184 && y >= 12 && y < 44;
-    wire metric_glyph = x >= 1016 && x < 1256 &&
-                        ((y >= 112 && y < 144) || (y >= 240 && y < 272) || (y >= 352 && y < 384));
-    wire [5 : 0] metric_row = y < 200 ? 6'd7 : (y < 312 ? 6'd15 : 6'd22);
-    wire [11 : 0] metric_y = y < 200 ? y - 112 : (y < 312 ? y - 240 : y - 352);
+    reg [4 : 0] glyph_row0 = 0;
+    reg [3 : 0] glyph_bit0 = 0;
     always @(posedge pixel_clk) begin
         x0 <= x;
         y0 <= y;
         wx_address <= wx;
-        char_address <= title_glyph    ? 13'd3 + ((x - 24) >> 4)
-                        : metric_glyph ? metric_row * 160 + 127 + ((x - 1016) >> 4)
-                                       : (y >> 4) * 160 + (x >> 3);
-        glyph_row0 <= title_glyph ? ((y - 12) >> 1) : metric_glyph ? (metric_y >> 1) : y[3 : 0];
-        glyph_bit0 <= title_glyph ? ((x - 24) >> 1) : metric_glyph ? ((x - 1016) >> 1) : x[2 : 0];
-        hx_product <= plot ? (x - 20) * 20'd683 : 20'd0;
+        char_address <= (y/24)*80 + (x>>4);
+        glyph_row0 <= y%24;
+        glyph_bit0 <= x[3:0];
+        hx_product <= plot ? (x - 80) * 20'd683 : 20'd0;
         hy_product <= plot ? (y - 70) * 20'd683 : 20'd0;
     end
     wire [13 : 0] hist_read_index = (hy_product >> 12) * HW + (hx_product >> 12);
@@ -171,15 +164,16 @@ module scope_display
     wire [9 : 0] pair_top = wq[9 : 0] < pair_q[9 : 0] ? wq[9 : 0] : pair_q[9 : 0];
     wire [9 : 0] pair_bottom = wq[19 : 10] > pair_q[19 : 10] ? wq[19 : 10] : pair_q[19 : 10];
 
-    reg [7 : 0] hq = 0, cq = 32, fq = 0;
+    reg [7:0] hq=0;
+    reg [15:0] cq=32,fq=0;
     reg [11 : 0] x1 = 0, y1 = 0, x2 = 0, y2 = 0, x3 = 0, y3 = 0;
     reg [19 : 0] w2 = 0, w3 = 0;
     reg [7 : 0] h2 = 0, h3 = 0;
     reg [3 : 0] hsp = 0, vsp = 0, dep = 0;
-    reg [3 : 0] row1 = 0;
-    reg [2 : 0] bit1 = 0, bit2 = 0;
-    reg [7 : 0] font3 = 0;
-    reg [2 : 0] bit3 = 0;
+    reg [4 : 0] row1 = 0;
+    reg [3 : 0] bit1 = 0, bit2 = 0;
+    reg [15 : 0] font3 = 0;
+    reg [3 : 0] bit3 = 0;
     always @(posedge pixel_clk) begin
         x1 <= x0;
         y1 <= y0;
@@ -192,11 +186,10 @@ module scope_display
         dep <= {dep[2 : 0], de0};
         wq <= wave[{bank_pix, wx_address}];
         hq <= histogram[{bank_pix, hist_read_index}];
-        cq <= characters[bank_pix * 8192 + char_address];
+        cq <= characters[bank_pix * 4096 + char_address];
         row1 <= glyph_row0;
         bit1 <= glyph_bit0;
-        fq <= font[{cq[6 : 0], row1}] |
-              ((VIDEO_VGA && row1 < 15) ? font[{cq[6 : 0], row1 + 4'd1}] : 8'd0);
+        fq <= font[cq[8:0]*24+row1];
         bit2 <= bit1;
         w2 <= VIDEO_VGA ? {pair_bottom, pair_top} : wq;
         h2 <= hq;
@@ -209,9 +202,9 @@ module scope_display
     assign hs = hs_q;
     assign vs = vs_q;
     assign de = de_q;
-    wire in_plot = x3 >= 20 && x3 < 980 && y3 >= 70 && y3 < 610;
-    wire grid = (x3 == 20) || (x3 == 116) || (x3 == 212) || (x3 == 308) || (x3 == 404) ||
-                (x3 == 500) || (x3 == 596) || (x3 == 692) || (x3 == 788) || (x3 == 884) ||
+    wire in_plot = x3 >= 80 && x3 < 1040 && y3 >= 70 && y3 < 610;
+    wire grid = (x3 == 80) || (x3 == 176) || (x3 == 272) || (x3 == 368) || (x3 == 464) ||
+                (x3 == 560) || (x3 == 656) || (x3 == 752) || (x3 == 848) || (x3 == 944) || (x3 == 1039) || (y3 == 609) ||
                 (y3 == 70) || (y3 == 124) || (y3 == 178) || (y3 == 232) || (y3 == 286) ||
                 (y3 == 340) || (y3 == 394) || (y3 == 448) || (y3 == 502) || (y3 == 556);
     wire trace = in_plot && (VIDEO_VGA ? (y3 + 1 >= w3[9 : 0]) : (y3 >= w3[9 : 0])) &&
@@ -220,7 +213,7 @@ module scope_display
                          : h3 < 64  ? {8'd0, 8'hc0, h3 << 2}
                          : h3 < 128 ? {h3 << 1, 8'hff, 8'd0}
                                     : {8'hff, 8'hff - (h3 << 1), 8'd0};
-    wire header_tab = y3 >= 8 && y3 < 34 && x3 >= 240 && x3 < 912;
+    wire header_tab = 1'b0;
     wire selected_tab = (meta_pix[2 : 0] == 0 && x3 >= 240 && x3 < 328) ||
                         (meta_pix[2 : 0] == 1 && x3 >= 336 && x3 < 424) ||
                         (meta_pix[2 : 0] == 2 && x3 >= 432 && x3 < 520) ||
@@ -228,13 +221,13 @@ module scope_display
                         (meta_pix[2 : 0] == 4 && x3 >= 624 && x3 < 712) ||
                         (meta_pix[2 : 0] == 5 && x3 >= 720 && x3 < 808) ||
                         (meta_pix[2 : 0] == 6 && x3 >= 816 && x3 < 904);
-    wire card = x3 >= 1008 && x3 < 1264 &&
+    wire card = x3 >= 1056 && x3 < 1264 &&
                 ((y3 >= 80 && y3 < 192) || (y3 >= 200 && y3 < 304) || (y3 >= 312 && y3 < 416) ||
                  (y3 >= 432 && y3 < 610));
-    wire card_edge = card && (x3 == 1008 || x3 == 1263 || y3 == 80 || y3 == 191 || y3 == 200 ||
+    wire card_edge = card && (x3 == 1056 || x3 == 1263 || y3 == 80 || y3 == 191 || y3 == 200 ||
                               y3 == 303 || y3 == 312 || y3 == 415 || y3 == 432 || y3 == 609);
     wire big_value =
-             x3 >= 1016 && x3 < 1256 &&
+             x3 >= 1056 && x3 < 1256 &&
              ((y3 >= 112 && y3 < 144) || (y3 >= 240 && y3 < 272) || (y3 >= 352 && y3 < 384));
     wire soft_trace = in_plot && meta_pix[31] && w3[19 : 10] >= 70 && y3 + 1 >= w3[9 : 0] &&
                       y3 <= w3[19 : 10] + 1;
@@ -247,9 +240,9 @@ module scope_display
             rgb <= 24'h111d2b;
         if (in_plot) begin
             rgb <= grid ? 24'h202e3e : 24'h090f18;
-            if ((x3 == 500 || y3 == 340) && (x3[3 : 0] < 8 && y3[3 : 0] < 8))
+            if ((x3 == 560 || y3 == 340) && (x3[3 : 0] < 8 && y3[3 : 0] < 8))
                 rgb <= 24'h415067;
-            if (meta_pix[2 : 0] == 1 || meta_pix[2 : 0] == 2) begin
+            if (!meta_pix[16] && (meta_pix[2 : 0] == 1 || meta_pix[2 : 0] == 2)) begin
                 if (meta_pix[31] && h3 != 0)
                     rgb <= heat;
             end else begin
@@ -258,32 +251,28 @@ module scope_display
                 if (trace)
                     rgb <= meta_pix[2 : 0] == 3 ? 24'hb59aff : 24'hffce73;
             end
-            if (x3 == 500 && y3 < 80 && meta_pix[2 : 0] != 3)
+            if (x3 == 560 && y3 < 80 && meta_pix[2 : 0] != 3)
                 rgb <= 24'hf2a65a;
         end
         if (card)
             rgb <= card_edge ? 24'h27374a : 24'h111e2c;
-        if (x3 >= 1008 && x3 < 1011 &&
+        if (x3 >= 1056 && x3 < 1059 &&
             ((y3 >= 80 && y3 < 192) || (y3 >= 200 && y3 < 304) || (y3 >= 312 && y3 < 416)))
             rgb <= y3 < 200 ? 24'h61c8e0 : 24'hffce73;
         if (header_tab)
             rgb <= selected_tab ? 24'h254354 : 24'h142333;
         if (header_tab && selected_tab && y3 == 33)
             rgb <= 24'h61c8e0;
-        if (x3 >= 1024 && x3 < 1256 && y3 >= 8 && y3 < 48)
-            rgb <= meta_pix[7] ? 24'h183b35 : 24'h49342b;
+        if (x3 >= 1072 && x3 < 1264 && y3 >= 0 && y3 < 24)
+            rgb <= 24'h183b35;
         if (meta_pix[8] && y3 >= 61 && y3 < 69) rgb <= 24'hd99336;
-        if (y3 == 60 || y3 == 620)
+        if (y3 == 68 || y3 == 646)
             rgb <= 24'h2b3c50;
-        if (y3 >= 630 && y3 < 634)
+        if (y3 == 646)
             rgb <= 24'h375367;
-        if (meta_pix[9] && x3 >= 32 && x3 < 352 && y3 >= 76 && y3 < 464) begin
-            rgb <= (x3 == 32 || x3 == 351 || y3 == 76 || y3 == 463) ? 24'h4c6a81 : 24'h172b3d;
-            if (y3 >= ((7 + meta_pix[14 : 10]) * 16) && y3 < ((8 + meta_pix[14 : 10]) * 16))
-                rgb <= 24'h315467;
-        end
-        if ((font3[7 - bit3] || (VIDEO_VGA && bit3 < 7 && font3[6 - bit3])) &&
-            !(y3 < 12 && x3 >= 24 && x3 < 184)) begin
+        if (meta_pix[9] && !meta_pix[16] && x3>=128 && x3<1008 && y3>=96 && y3<552)
+            rgb<=24'h172b3d;
+        if (font3[15-bit3]) begin
             rgb <= 24'hd3dfed;
             if (y3 < 60)
                 rgb <= 24'he9f2fb;
@@ -291,7 +280,7 @@ module scope_display
                 rgb <= 24'hffce73;
             if (big_value)
                 rgb <= 24'hebf4ff;
-            if (x3 >= 1016 &&
+            if (x3 >= 1056 &&
                 ((y3 >= 80 && y3 < 104) || (y3 >= 208 && y3 < 232) || (y3 >= 320 && y3 < 344)))
                 rgb <= 24'h83a4c1;
             if (y3 >= 640 && y3 < 656)

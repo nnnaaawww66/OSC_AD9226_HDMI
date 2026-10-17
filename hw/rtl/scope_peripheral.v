@@ -34,7 +34,8 @@ module scope_peripheral
      output wire m_axis_tvalid,
      input wire m_axis_tready,
      output wire m_axis_tlast,
-     input wire adc_clk_in, pixel_clk,
+     input wire adc_clk_in, pixel_clk, dac_clock,
+     output wire [13:0] dac_data,
      input wire video_locked, adc_locked,
      input wire [11 : 0] adc_data,
      input wire adc_otr,
@@ -44,6 +45,21 @@ module scope_peripheral
      output wire hs, vs, de,
      output wire irq);
 
+    reg dac_we=0, dac_commit=0;
+    reg [10:0] dac_addr=0;
+    reg [13:0] dac_value=0, dac_idle=8192;
+    reg [31:0] dac_step=0;
+    reg dac_enable=0;
+    wire dac_busy,dac_bank;
+    wire [13:0] dac_read;
+    wire [79:0] dac_status;
+    reg [79:0] dac_snapshot=0;
+    scope_dac dac(.sys_clk(s_axi_aclk),.sys_rst(!s_axi_aresetn),
+      .dac_clock(dac_clock),.table_we(dac_we),.table_addr(dac_addr),
+      .table_data(dac_value),.read_addr(ra_reg[12:2]),.read_data(dac_read),
+      .commit(dac_commit),.phase_step(dac_step),.enable(dac_enable),
+      .idle_code(dac_idle),.busy(dac_busy),.active_bank(dac_bank),
+      .status(dac_status),.dac_data(dac_data));
     reg hist_hit = 0, hist_clear = 0, hist_decay = 0;
     reg [13 : 0] hist_hit_addr = 0;
     reg raster_point = 0;
@@ -299,14 +315,15 @@ module scope_peripheral
     reg [9 : 0] wave_addr = 0;
     reg [19 : 0] wave_data = 0;
     reg [15 : 0] hist_addr = 0;
-    reg [7 : 0] hist_data = 0, text_data = 0;
+    reg [7 : 0] hist_data = 0;
+    reg [15:0] text_data=0;
     reg [12 : 0] text_addr = 0;
     wire display_pending, front_bank;
     wire [31 : 0] video_frames, video_crc;
     wire [31 : 0] frame_meta = {owner[0] | fb_valid, 22'b0,  (owner[0] ? owner[7] : config_reg[1]),
                                 config_reg[0],       auto_s, 3'b0,
                                 mode_reg[2 : 0]} |
-                               ((owner & 32'h7e) << 8);
+                               ((owner & 32'h7e) << 8) | ((owner & 32'h100) << 8);
     scope_display #(.VIDEO_VGA(VIDEO_VGA))
         display(.sys_clk(clk),
                 .sys_rst(rst | !video_locked),
@@ -469,6 +486,7 @@ module scope_peripheral
                     default:
                         fb_state <= 0;
                 endcase
+            dac_we<=0; dac_commit<=0;
             if (s_axi_awready && s_axi_awvalid) begin
                 aw_hold <= 1;
                 aw_reg <= s_axi_awaddr;
@@ -487,7 +505,10 @@ module scope_peripheral
                 s_axi_bresp <= 0;
                 if (aw_reg[1 : 0] != 0 || ws_reg != 4'hf)
                     s_axi_bresp <= 2'b10;
-                else if (aw_reg >= 20'h20000 && aw_reg < 20'h20f00) begin
+                else if(aw_reg >= 20'h30000 && aw_reg < 20'h32000) begin
+                    if(dac_busy || wd_reg > 16383) s_axi_bresp<=2;
+                    else begin dac_we<=1;dac_addr<=aw_reg[12:2];dac_value<=wd_reg[13:0];end
+                end else if (aw_reg >= 20'h20000 && aw_reg < 20'h20f00) begin
                     if (display_pending)
                         s_axi_bresp <= 2;
                     else begin
@@ -503,16 +524,19 @@ module scope_peripheral
                         hist_addr <= (aw_reg - 20'h40000) >> 2;
                         hist_data <= wd_reg[7 : 0];
                     end
-                end else if (aw_reg >= 20'h80000 && aw_reg < 20'h87080) begin
+                end else if (aw_reg >= 20'h80000 && aw_reg < 20'h82580) begin
                     if (display_pending)
                         s_axi_bresp <= 2;
                     else begin
                         text_we <= 1;
                         text_addr <= (aw_reg - 20'h80000) >> 2;
-                        text_data <= wd_reg[7 : 0];
+                        text_data <= wd_reg[15 : 0];
                     end
                 end else
                     case (aw_reg)
+                        'h100: if(!dac_busy) dac_step<=wd_reg; else s_axi_bresp<=2;
+                        'h104: if(!dac_busy && wd_reg<32768) begin dac_enable<=wd_reg[14];dac_idle<=wd_reg[13:0];end else s_axi_bresp<=2;
+                        'h108: if(!dac_busy) dac_commit<=wd_reg[0];else s_axi_bresp<=2;
                         'h08:
                             if (config_busy)
                                 s_axi_bresp <= 2;
@@ -603,6 +627,7 @@ module scope_peripheral
                 s_axi_rdata <= 0;
                 if (ra_reg[1 : 0] != 0)
                     s_axi_rresp <= 2;
+                else if(ra_reg >= 20'h30000 && ra_reg < 20'h32000) s_axi_rdata<={18'd0,dac_read};
                 else if (ra_reg >= 20'h10000 && ra_reg < 20'h20000) begin
                     if (!ready_s)
                         s_axi_rresp <= 2;
@@ -615,10 +640,17 @@ module scope_peripheral
                         s_axi_rdata <= {24'b0, hist_read};
                 end else
                     case (ra_reg)
+                        'h100:s_axi_rdata<=dac_step;
+                        'h104:s_axi_rdata<={17'd0,dac_enable,dac_idle};
+                        'h108:s_axi_rdata<={30'd0,dac_bank,dac_busy};
+                        'h10c:begin s_axi_rdata<=dac_status[31:0];dac_snapshot<=dac_status;end
+                        'h114:s_axi_rdata<=dac_snapshot[79:48];
+                        'h118:s_axi_rdata<={16'b0,dac_snapshot[47:32]};
+                        'h110:s_axi_rdata<=50000000;
                         'h00:
                             s_axi_rdata <= 32'h53434f50;
                         'h04:
-                            s_axi_rdata <= 32'h00030000;
+                            s_axi_rdata <= 32'h00040000;
                         'h08:
                             s_axi_rdata <= config_reg;
                         'h0c:

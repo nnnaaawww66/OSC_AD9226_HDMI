@@ -3,11 +3,12 @@ import subprocess,json,sys,time
 root=Path(__file__).resolve().parents[1]
 bin=Path(r'D:/Xilinx/Vivado/2018.3/bin')
 out=root/'results/2026-10-17/simulation';out.mkdir(exist_ok=True)
-tests={'capture':['scope_capture.v'],'mailbox':['reset_sync.v'],'video':['scope_video_timing.v'],'vga':['scope_video_timing.v'],'keys':['scope_keys.v'],'tmds':['../vendor/encode.v'],'histogram':['scope_histogram.v'],'roll':['scope_roll.v'],'raster':['scope_raster.v'],'axi':['reset_sync.v','scope_capture.v','scope_keys.v','scope_video_timing.v','scope_display.v','scope_dma_stream.v','scope_histogram.v','scope_raster.v','scope_roll.v','scope_peripheral.v'],'dma':['reset_sync.v','scope_dma_stream.v']}
+tests={'capture':['scope_capture.v'],'mailbox':['reset_sync.v'],'video':['scope_video_timing.v'],'vga':['scope_video_timing.v'],'keys':['scope_keys.v'],'tmds':['../vendor/encode.v'],'histogram':['scope_histogram.v'],'roll':['scope_roll.v'],'raster':['scope_raster.v'],'axi':['reset_sync.v','scope_capture.v','scope_keys.v','scope_video_timing.v','scope_display.v','scope_dma_stream.v','scope_histogram.v','scope_raster.v','scope_roll.v','scope_dac.v','scope_peripheral.v'],'dma':['reset_sync.v','scope_dma_stream.v']}
 tests['fallback']=tests['axi']
 tests['adc']=tests['axi']
 tests['clocks']=['scope_clocks.v']
 tests['adc_latency']=[]
+tests['dac']=['reset_sync.v','scope_dac.v']
 results={}
 for name,rtl in tests.items():
     if len(sys.argv)>1 and name not in sys.argv[1:]:continue

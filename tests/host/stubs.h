@@ -12,6 +12,14 @@ typedef struct{unsigned CpuBaseAddress;}XScuGic_Config;typedef struct{unsigned d
 #define XST_SUCCESS 0
 #define XIL_EXCEPTION_ID_INT 0
 #define XUARTPS_FIFO_OFFSET 0
+#define XUARTPS_ISR_OFFSET 0x14
+#define XUARTPS_IER_OFFSET 8
+#define XUARTPS_RXWM_OFFSET 0x20
+#define XUARTPS_RXTOUT_OFFSET 0x1c
+#define XUARTPS_IXR_RXOVR 1
+#define XUARTPS_IXR_TOUT 0x100
+static inline void XUartPs_WriteReg(unsigned a,unsigned b,unsigned c){(void)a;(void)b;(void)c;}
+
 static inline void XTime_GetTime(XTime*t){*t=GetTickCount64()*1000;}
 static inline void Xil_DCacheFlushRange(UINTPTR p,unsigned n){(void)p;(void)n;}
 static inline void Xil_DCacheInvalidateRange(UINTPTR p,unsigned n){(void)p;(void)n;}

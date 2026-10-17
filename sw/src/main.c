@@ -27,14 +27,32 @@ typedef struct {
         offset, encoding, gain;
     double uv_per_code, zero;
 } settings;
-static settings cfg = {DSO, 1,       0,    2048, 8, 0, 0, 10000000, 4096,
-                       1,   1000000, 4096, 0,    0, 0, 0, 0,        2048},
+static settings cfg = {DSO,
+                       1,
+                       0,
+                       2048,
+                       8,
+                       0,
+                       0,
+                       10000000,
+                       4096,
+                       1,
+                       1000000,
+                       4096,
+                       0,
+                       0,
+                       0,
+                       0,
+                       10000000.0 / 4095.0,
+                       2047.5},
                 saved;
 static uint16_t record[SCOPE_N] __attribute__((aligned(64)));
 static uint32_t wave[SCOPE_W];
 static uint8_t hist[HIST_W * HIST_H];
 static float re[4096], im[4096], spectrum[2048];
-static char screen[7200], command[160];
+static uint16_t screen[2400];
+static char command[160];
+static unsigned adc_calibrated, auto_scale;
 static unsigned command_len, sequence, menu, selection;
 static unsigned mem_gate, mem_valid, seg_count, last_record, valid_record, refreshes,
     captures_processed, hist_updates, key_lost, dirty = 1;
@@ -71,13 +89,17 @@ static void dma_write(unsigned off, uint32_t value) {
 #endif
 }
 static unsigned debug_reply_active;
+static uint32_t rpc_id;
+static volatile unsigned uart_head, uart_tail, uart_lost;
+static volatile unsigned char uart_rx[1024];
 static void reply(int ok, const char *fmt, ...) {
     char payload[512], line[560];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(payload, sizeof(payload), fmt, ap);
     va_end(ap);
-    snprintf(line, sizeof(line), "%s seq=%u %s\r\n", ok ? "OK" : "ERR", ++sequence, payload);
+    snprintf(line, sizeof(line), "%s seq=%u rid=%08lx %s\r\n", ok ? "OK" : "ERR", ++sequence,
+             (unsigned long)rpc_id, payload);
     printf("%s", line);
     if (debug_reply_active) {
         volatile scope_debug_mailbox *m = DEBUG_MAILBOX;
@@ -161,6 +183,20 @@ static void dma_isr(void *unused) {
     if (s & 0x770)
         dma_errors = s;
 }
+static void uart_isr(void *unused) {
+    (void)unused;
+    while (XUartPs_IsReceiveData(XPAR_XUARTPS_0_BASEADDR)) {
+        unsigned ch = XUartPs_ReadReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_FIFO_OFFSET);
+        unsigned next = (uart_head + 1) & 1023;
+        if (next == uart_tail)
+            uart_lost++;
+        else {
+            uart_rx[uart_head] = (unsigned char)ch;
+            uart_head = next;
+        }
+    }
+    XUartPs_WriteReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_ISR_OFFSET, 0xffffffff);
+}
 static int interrupts_init(void) {
     XScuGic_Config *gc = XScuGic_LookupConfig(XPAR_SCUGIC_SINGLE_DEVICE_ID);
     if (!gc || XScuGic_CfgInitialize(&gic, gc, gc->CpuBaseAddress) != XST_SUCCESS)
@@ -174,34 +210,43 @@ static int interrupts_init(void) {
     XScuGic_SetPriorityTriggerType(&gic, 62, 0x80, 1);
     XScuGic_Connect(&gic, 62, dma_isr, 0);
     XScuGic_Enable(&gic, 62);
+    XScuGic_SetPriorityTriggerType(&gic, 59, 0x90, 1);
+    XScuGic_Connect(&gic, 59, uart_isr, 0);
+    XScuGic_Enable(&gic, 59);
+    XUartPs_WriteReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_RXWM_OFFSET, 16);
+    XUartPs_WriteReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_RXTOUT_OFFSET, 8);
+    XUartPs_WriteReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_ISR_OFFSET, 0xffffffff);
+    XUartPs_WriteReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_IER_OFFSET,
+                     XUARTPS_IXR_RXOVR | XUARTPS_IXR_TOUT);
     Xil_ExceptionEnable();
     return 1;
 }
+#include "scope_dac_control.h"
+#include "scope_ui_font.h"
+
 static void text(unsigned row, unsigned col, const char *fmt, ...) {
-    char s[170];
+    char str[320];
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(s, sizeof(s), fmt, ap);
+    vsnprintf(str, sizeof(str), fmt, ap);
     va_end(ap);
-    unsigned i;
-    for (i = 0; s[i] && col + i < 160 && row < 45; i++)
-        screen[row * 160 + col + i] = s[i] >= 32 && s[i] < 127 ? s[i] : '?';
+    const unsigned char *p = (const unsigned char *)str;
+    while (*p && row < 30 && col < 80) {
+        unsigned ch = *p++;
+        if (ch >= 0xe0 && ch < 0xf0 && p[0] && p[1]) {
+            ch = ((ch & 15) << 12) | ((p[0] & 63) << 6) | (p[1] & 63);
+            p += 2;
+        } else if (ch >= 0xc0 && ch < 0xe0 && p[0]) {
+            ch = ((ch & 31) << 6) | (p[0] & 63);
+            p++;
+        }
+        screen[row * 80 + col++] = ui_glyph(ch);
+    }
 }
 static const char *state_name(unsigned s) {
-    switch ((s >> 1) & 7) {
-    case 0:
-        return "IDLE";
-    case 1:
-        return "PREFILL";
-    case 2:
-        return "ARMED";
-    case 3:
-        return "POST";
-    case 4:
-        return "HOLD";
-    default:
-        return "FAULT";
-    }
+    static const char *names[] = {"空闲", "预采集", "等待触发", "后采集",
+                                  "保持", "错误",   "错误",     "错误"};
+    return names[(s >> 1) & 7];
 }
 static unsigned displayed_source_sim(void) {
     if (cfg.mode == MEM && mem_valid)
@@ -210,145 +255,211 @@ static unsigned displayed_source_sim(void) {
         return segment_sim[cfg.segment];
     return valid_record ? record_source_sim : cfg.sim;
 }
-static void draw_ui(void) {
-    memset(screen, ' ', sizeof(screen));
-    unsigned s = scope_read(R_STATE);
-    unsigned visible_sim = displayed_source_sim();
-    uint32_t err = scope_read(R_ERRORS);
-    text(0, 3, "Z7 SCOPE");
-    for (unsigned i = 0; i < 7; i++)
-        text(1, 32 + i * 12, "%s", modes[i]);
-    text(1, 130, "%s / %s", cfg.run ? "RUN" : "STOP", state_name(s));
-    text(2, 130, "%s   %u MSa/s", visible_sim ? "SIM" : "ADC", cfg.rate / 1000000);
-    text(2, 31, "CH1 / 12-BIT    %s    TRIG #%u    VIDEO %u",
-         s & 16 ? "AUTO TIMEOUT" : "EDGE TRIGGER", scope_read(R_TRIG), scope_read(R_FRAME));
-    text(4, 3, "CH1   %s  |  %s", visible_sim ? "INTERNAL TEST" : "AD9226 INPUT",
-         cfg.uv_per_code > 0 ? "VOLTAGE CALIBRATED" : "ADC CODE / VOLTAGE UNCALIBRATED");
-    text(5, 127, "FREQUENCY");
-    if (valid_record && measurement.frequency_valid) {
-        double f = measurement.frequency;
-        if (f >= 1e6)
-            text(7, 127, "%.3f MHz", f / 1e6);
-        else if (f >= 1000)
-            text(7, 127, "%.3f kHz", f / 1000);
-        else
-            text(7, 127, "%.2f Hz", f);
-    } else
-        text(7, 127, "N/A");
-    text(10, 127, "%s",
-         !valid_record                 ? "WAITING FOR CAPTURE"
-         : measurement.overrange       ? "OVERRANGE / INVALID"
-         : measurement.frequency_valid ? "MEASURED FROM CAPTURE"
-                                       : "NO VALID PERIOD");
-    text(13, 127, "PEAK TO PEAK");
-    text(20, 127, "RMS / VERTICAL");
-    if (valid_record && cfg.uv_per_code > 0 && !measurement.overrange) {
-        text(15, 127, "%.4f V", (measurement.max - measurement.min) * cfg.uv_per_code / 1e6);
-        double rms = sqrt(fmax(0, measurement.rms * measurement.rms -
-                                      2 * cfg.zero * measurement.mean + cfg.zero * cfg.zero)) *
-                     cfg.uv_per_code / 1e6;
-        text(22, 127, "%.4f V", rms);
-    } else {
-        text(15, 127, "N/A");
-        text(22, 127, "N/A");
-    }
-    if (valid_record) {
-        text(18, 127, "%u code / MIN %u MAX %u", measurement.max - measurement.min, measurement.min,
-             measurement.max);
-        text(25, 127, "%s / GAIN x%u", cfg.uv_per_code > 0 ? "CALIBRATED" : "CALIBRATION REQUIRED",
-             1u << cfg.gain);
-    } else {
-        text(18, 127, "NO VALID RECORD");
-        text(25, 127, "%s", visible_sim ? "INTERNAL TEST ACTIVE" : "CHECK SIGNAL / TRIGGER");
-    }
-    text(28, 127, "TRIGGER / %s", cfg.trig == 0 ? "AUTO" : cfg.trig == 1 ? "NORMAL" : "SINGLE");
-    text(29, 127, "%s  LEVEL %u  HYST %u", cfg.edge ? "FALL" : "RISE", cfg.level, cfg.hyst);
-    if (cfg.mode == EYE) {
-        text(31, 127, "2 UI / %.2f Mb/s", cfg.bitrate / 1e6);
-        text(32, 127, "NO CDR / REFERENCE UNLOCKED");
-        text(33, 127, "EYE WIDTH / JITTER: N/A");
-    } else if (cfg.mode == FFT) {
-        text(31, 127, "FFT %u / %s", cfg.fft_n, cfg.hann ? "HANN" : "RECT");
-        text(32, 127, "PEAK %.1f Hz", fft_hz);
-        text(33, 127, "%.2f dBFS / 0..-120", fft_db);
-    } else {
-        text(31, 127, "RECORD 16K / PRETRIG 8K");
-        text(32, 127, "DDR %s", mem_gate ? "SELFTEST PASSED" : "SELFTEST REQUIRED");
-        text(33, 127, "MEM %s / SEG %u OF 8", mem_valid ? "READY" : "EMPTY",
-             seg_count < SEGMENTS ? seg_count : SEGMENTS);
-    }
-    text(35, 127, "OTR %u   DROP %u", scope_read(R_OTR), scope_read(R_DROP));
-    text(36, 127, "%s / ENCODING %s", err ? "FAULT / SEE STATUS" : "SYSTEM READY",
-         cfg.encoding ? "TWOS" : "OFFSET");
-    text(37, 127, "FRAME %u / UI %.1f Hz", scope_read(R_FRAME), frame_hz);
-    text(40, 3, "%.3f us/div    SPAN %.3f us    VIEW %u / RECORD 16K    GAIN x%u    %s",
-         cfg.span * 1e5 / cfg.rate, cfg.span * 1e6 / cfg.rate, cfg.span, 1u << cfg.gain,
-         cfg.uv_per_code > 0 ? "VOLT SCALE CALIBRATED" : "V/DIV N/A - NOT CALIBRATED");
-    if (cfg.mode == FFT || cfg.mode == EYE || cfg.mode == ROLL || cfg.mode == DPX ||
-        (cfg.mode == MEM && mem_valid) || (cfg.mode == SEG && seg_count))
-        memset(screen + 40 * 160, ' ', 160);
-    if (cfg.mode == DPX)
-        text(40, 3,
-             "DPX %.3f us/div   FULL 16K / %.3f us   DENSITY 160x90   8-BIT SATURATION / DECAY",
-             SCOPE_N * 1e5 / cfg.rate, SCOPE_N * 1e6 / cfg.rate);
-    if (cfg.mode == FFT)
-        text(40, 3, "FFT X 0..%.1f Hz   BIN %.2f Hz   Y 0..-120 dBFS   BOXCAR DECIMATION",
-             (double)cfg.rate * cfg.fft_n / (2.0 * SCOPE_N), cfg.rate / (double)SCOPE_N);
-    if (cfg.mode == EYE)
-        text(40, 3, "EYE 0..2 UI / %.3f us   160x90 DENSITY   WIDTH/JITTER N/A - NO REFERENCE LOCK",
-             2e6 / cfg.bitrate);
-    if (cfg.mode == ROLL)
-        text(40, 3, "ROLL %.3f ms/COLUMN   %.3f s TOTAL   MISSED %u   SAMPLE #%llu",
-             100000.0 * 1000 / cfg.rate, 100000.0 * SCOPE_W / cfg.rate, roll_lost,
-             (unsigned long long)roll_time);
-    if (cfg.mode == MEM && mem_valid)
-        text(40, 3, "MEM 1Mi SAMPLES   OFFSET %u   FIRST #%llu   SOURCE %s", cfg.offset,
-             (unsigned long long)mem_first_index, mem_source_sim ? "SIM" : "ADC");
-    if (cfg.mode == SEG && seg_count)
-        text(40, 3, "SEG %u / %u SAMPLES   FIRST #%llu   SOURCE %s", cfg.segment,
-             segment_len[cfg.segment], (unsigned long long)segment_time[cfg.segment],
-             segment_sim[cfg.segment] ? "SIM" : "ADC");
-    if (err)
-        text(41, 3, "FAULT %08lx  %s %s %s", (unsigned long)err, err & 1 ? "FIFO_OVF" : "",
-             err & 2 ? "OVERRANGE" : "", err & 4 ? "HIST_DROP" : "");
-    else if (visible_sim)
-        text(41, 3, "SIM TEST SOURCE ACTIVE - THIS IS NOT THE AD9226 ANALOG INPUT");
-    else if (valid_record && measurement.max - measurement.min < 16)
-        text(41, 3, "NO SIGNAL / FLAT INPUT - FREQUENCY IS NOT VALID");
+static unsigned dac_plot_lo, dac_plot_hi = 16383;
+static uint32_t dac_preview(unsigned x) {
+    unsigned index = (x * 2u * DAC_N / SCOPE_W) % DAC_N;
+    unsigned value = dac_table[index];
+    unsigned y = 609 - (value - dac_plot_lo) * 539u / (dac_plot_hi - dac_plot_lo);
+    unsigned prev = x ? (x - 1) * 2u * DAC_N / SCOPE_W % DAC_N : index;
+    unsigned y0 = 609 - (dac_table[prev] - dac_plot_lo) * 539u / (dac_plot_hi - dac_plot_lo);
+    return (y < y0 ? y : y0) | ((y > y0 ? y : y0) << 10);
+}
+static void unit_text(char *out, unsigned size, double value, const char *unit) {
+    double a = fabs(value);
+    if (a >= 1e6)
+        snprintf(out, size, "%.2f M%s", value / 1e6, unit);
+    else if (a >= 1e3)
+        snprintf(out, size, "%.2f k%s", value / 1e3, unit);
+    else if (a > 0 && a < 1e-3)
+        snprintf(out, size, "%.1f us", value * 1e6);
+    else if (a > 0 && a < 1)
+        snprintf(out, size, "%.2f ms", value * 1e3);
     else
-        text(41, 3, "%s", message);
-    text(42, 3, "CAP %u  HIST %u  HITS %u  LOST %u  FIFO %u/4096  DEAD %u  UI %.1fms  RTL %08lx",
-         captures_processed, hist_updates, hits, drops, scope_read(R_HWM), scope_read(R_DEAD),
-         render_ms, (unsigned long)scope_read(0xf4));
-    text(
-        43, 3,
-        "K1: SELECT   K2: CHANGE   HOLD: REVERSE/BACK   BOTH: MENU   BOTH HOLD: RUN/STOP   DEBUG: JTAG / UART 115200");
+        snprintf(out, size, "%.2f %s", value, unit);
+}
+static void axes(void) {
+    // Grid x=80..1040 with ten divisions; y=70..609. Each label is
+    // derived from exactly the same transfer used for the plotted samples.
+    unsigned fft = (!page_dac && cfg.mode == FFT), eye = (!page_dac && cfg.mode == EYE);
+    for (unsigned j = 0; j <= 10; j += 2) {
+        double value;
+        if (page_dac)
+            value = (2.0 * j / 10) / dac_frequency;
+        else if (fft)
+            value = (double)cfg.rate * cfg.fft_n / (2 * SCOPE_N) * j / 10;
+        else if (eye)
+            value = 2.0 * j / 10;
+        else if (cfg.mode == ROLL)
+            value = -(10 - j) * 100000.0 * SCOPE_W / (10 * cfg.rate);
+        else if (cfg.mode == DPX)
+            value = (j - 5.0) * SCOPE_N / (10 * cfg.rate);
+        else if (cfg.mode == MEM)
+            value = (fmin(cfg.offset, 1048576 - cfg.span) + j * cfg.span / 10.0) / (double)cfg.rate;
+        else
+            value = (j - 5.0) * cfg.span / (10 * cfg.rate);
+        char label[32];
+        if (eye)
+            snprintf(label, sizeof(label), "%.1f UI", value);
+        else
+            unit_text(label, sizeof(label), value, fft ? "Hz" : "s");
+        int centered = (80 + 96 * (int)j) / 16 - (int)strlen(label) / 2;
+        unsigned col = centered < 0 ? 0 : (unsigned)centered;
+        if (col + strlen(label) > 80)
+            col = 80 - strlen(label);
+        text(26, col, "%s", label);
+    }
+    for (unsigned j = 0; j <= 10; j += 2) {
+        double code = 4095 * (1 - j / 10.0);
+        unsigned row = (70 + j * 54) / 24;
+        if (row >= 26)
+            row = 25;
+        if (page_dac)
+            text(row, 0, "%4.1f",
+                 100 * (dac_plot_hi - (dac_plot_hi - dac_plot_lo) * j / 10.0) / 16383.0);
+        else if (fft)
+            text(row, 0, "%4d", -(int)j * 12);
+        else {
+            if (cfg.mode != EYE && cfg.mode != DPX)
+                code = cfg.zero + (code - 2047.5) / (1u << cfg.gain);
+            if (cfg.uv_per_code > 0)
+                text(row, 0, "%4.2f", (code - cfg.zero) * cfg.uv_per_code / 1e6);
+            else
+                text(row, 0, "%4.0f", code);
+        }
+    }
+    text(2, 5, "%s", page_dac ? "%FS" : fft ? "dBFS" : cfg.uv_per_code > 0 ? "V" : "码值");
+    if (!page_dac && (cfg.mode == DPX || cfg.mode == EYE))
+        text(24, 8, "颜色强度:命中计数 1..255 / 衰减累积");
+}
+static void draw_ui(void) {
+    for (unsigned i = 0; i < 2400; i++)
+        screen[i] = ' ';
+    unsigned state = scope_read(R_STATE), sim = displayed_source_sim();
+    uint32_t err = scope_read(R_ERRORS);
+    const char *names[] = {"示波器", "DPX", "EYE", "FFT", "滚动", "长存储", "分段"};
+    text(0, 1, "Z7 LAB");
+    text(0, 12, "%s / %s", page_dac ? "DAC 信号发生器" : "ADC 数字示波器",
+         page_dac ? "独立输出" : names[cfg.mode]);
+    text(0, 67, "%s", page_dac ? (dac_on ? "输出开启" : "保持中点") : (cfg.run ? "RUN" : "STOP"));
+    text(1, 1, "%s", page_dac ? "DAC904  14 bit  50 MSa/s" : "AD9226  12 bit");
+    if (page_dac)
+        text(1, 34, "配置预览 / 非输出实测");
+    else
+        text(1, 24, "%u MSa/s  %s  %s", cfg.rate / 1000000, sim ? "SIM 测试源" : "ADC 实际输入",
+             state_name(state));
+    if (page_dac) {
+        unsigned lo = 16383, hi = 0;
+        for (unsigned i = 0; i < DAC_N; i++) {
+            if (dac_table[i] < lo)
+                lo = dac_table[i];
+            if (dac_table[i] > hi)
+                hi = dac_table[i];
+        }
+        unsigned margin = (hi - lo) / 8;
+        if (margin < 80)
+            margin = 80;
+        dac_plot_lo = lo > margin ? lo - margin : 0;
+        dac_plot_hi = hi + margin < 16383 ? hi + margin : 16383;
+    }
+    axes();
+    if (page_dac) {
+        const char *shapes[] = {"正弦波", "方波", "三角波", "锯齿波", "直流", "自定义"};
+        text(3, 67, "波形类型");
+        text(4, 67, "%s", shapes[dac_shape]);
+        text(6, 67, "实际设定频率");
+        text(7, 67, "%.2f Hz", dac_frequency);
+        text(9, 67, "峰峰值 / FS");
+        text(10, 67, "%.2f %%", dac_amplitude * 100);
+        text(12, 67, "偏置 / FS");
+        text(13, 67, "%.2f %%", dac_offset * 100);
+        text(15, 67, "占空比");
+        text(16, 67, "%.2f %%", dac_duty * 100);
+        text(18, 67, "波形校验 CRC");
+        text(19, 67, "%08lx", (unsigned long)dac_crc);
+        text(21, 67, "ADC 独立运行");
+        text(22, 67, "%s %uM", modes[cfg.mode], cfg.rate / 1000000);
+        text(24, 67, "电压未校准");
+        text(27, 1, "DAC 配置预览:横轴时间 / 纵轴满量程百分比 / 双周期");
+        text(28, 1, "DAC 标称 5Vpp / 默认关闭 / ADC 模块标称量程 ±5V @50Ω");
+        text(29, 1, "上位机:独立 DAC 控制 / 数学表达式 / CSV / 波形上传与校验");
+        return;
+    }
+    text(3, 67, "频率");
+    if (valid_record && measurement.frequency_valid)
+        text(4, 67, "%.2f Hz", measurement.frequency);
+    else
+        text(4, 67, "N/A");
+    text(6, 67, "峰峰值");
+    if (valid_record && cfg.uv_per_code > 0)
+        text(7, 67, "%.4f V", (measurement.max - measurement.min) * cfg.uv_per_code / 1e6);
+    else if (valid_record)
+        text(7, 67, "%u 码值", measurement.max - measurement.min);
+    else
+        text(7, 67, "等待采样");
+    text(9, 67, "电平均值");
+    text(10, 67, "%.2f code", measurement.mean);
+    text(12, 67, "触发设置");
+    text(13, 67, "%s / %s",
+         cfg.trig == 0   ? "自动"
+         : cfg.trig == 1 ? "普通"
+                         : "单次",
+         cfg.edge ? "下降" : "上升");
+    text(14, 67, "电平 %u", cfg.level);
+    text(15, 67, "滞回 %u", cfg.hyst);
+    text(17, 67, "状态诊断");
+    text(18, 67, "溢出 %u", scope_read(R_OTR));
+    text(19, 67, "丢失 %u", scope_read(R_DROP));
+    text(20, 67, "故障 %08lx", (unsigned long)err);
+    if (cfg.mode == FFT) {
+        text(22, 67, "%u点 %s", cfg.fft_n, cfg.hann ? "汉宁窗" : "矩形窗");
+        text(23, 67, "峰 %.1fHz", fft_hz);
+        text(24, 67, "%.1f dBFS", fft_db);
+    } else if (cfg.mode == EYE) {
+        text(22, 67, "%.2f Mb/s", cfg.bitrate / 1e6);
+        text(23, 67, "未锁定参考");
+        text(24, 67, "抖动 N/A");
+    } else {
+        text(22, 67, "DDR %s", mem_gate ? "已验证" : "待自检");
+        text(23, 67, "分段 %u/8", seg_count);
+        text(24, 67, "增益 x%u", 1u << cfg.gain);
+    }
+    if (cfg.mode == FFT)
+        text(27, 1, "FFT:频率 / dBFS | 分辨率 %.2f Hz | 有效采样 %.3f MSa/s",
+             cfg.rate / (double)SCOPE_N, (double)cfg.rate * cfg.fft_n / SCOPE_N / 1e6);
+    else if (cfg.mode == EYE)
+        text(27, 1, "EYE:横轴 0..2 UI | 1 UI = %.2f ns | 未启用时钟恢复", 1e9 / cfg.bitrate);
+    else if (cfg.mode == ROLL)
+        text(27, 1, "滚动:%.3f ms/列 | 丢失 %u | 采样编号 %llu", 1e8 / cfg.rate, roll_lost,
+             (unsigned long long)roll_time);
+    else
+        text(27, 1, "时间 %.3f us/格 | 视窗 %u 点 | 增益 x%u | 电压%s",
+             (cfg.mode == DPX ? SCOPE_N : cfg.span) * 1e5 / cfg.rate, cfg.span, 1u << cfg.gain,
+             adc_calibrated ? "已校准" : "标称值");
+    if (err)
+        text(28, 1, "故障: %08lx 请查看上位机状态 / JTAG 日志", (unsigned long)err);
+    else if (sim)
+        text(28, 1, "SIM 测试源开启 / 当前不是模拟输入波形");
+    else if (valid_record && measurement.max - measurement.min < 16)
+        text(28, 1, "未检测到稳定信号 / 输入浮空或近似直流 / 频率 N/A");
+    else
+        text(28, 1, "采集 %u  密度更新 %u  UI %.1f Hz  丢失 %u", captures_processed, hist_updates,
+             frame_hz, drops);
+    text(29, 1, "K1 选择  K2 修改  长按反向  双键菜单  双键长按 RUN/STOP");
     if (menu) {
-        text(5, 5, "MENU / K1 SELECT / K2 CHANGE");
-        const char *items[] = {"MODE",
-                               "RUN/STOP",
-                               "SIM / ADC",
-                               "TRIGGER TYPE",
-                               "TRIGGER EDGE",
-                               "TRIGGER LEVEL",
-                               "TIME SPAN",
-                               "FFT LENGTH",
-                               "FFT WINDOW",
-                               "EYE BIT RATE",
-                               "VERTICAL GAIN",
-                               "ZERO LEVEL",
-                               "PLAYBACK OFFSET",
-                               "SEGMENT",
-                               "MEM CAPTURE",
-                               "SINGLE REARM",
-                               "ADC RATE",
-                               "ENCODING",
-                               "SELFTEST / DDR GATE",
-                               "CAL uV PER CODE",
-                               "TRIGGER HYST"};
-        unsigned j;
-        for (j = 0; j < 21; j++)
-            text(7 + j, 5, "%c %02u %-18s", j == selection ? '>' : ' ', j + 1, items[j]);
+        const char *items[] = {"显示模式",   "运行 / 停止", "实际输入 / SIM", "触发方式",
+                               "触发边沿",   "触发电平",    "时间视窗",       "FFT 点数",
+                               "FFT 窗函数", "EYE 码率",    "垂直增益",       "零电平位置",
+                               "回放起点",   "分段编号",    "长存储采集",     "单次重新触发",
+                               "ADC 采样率", "数据编码",    "DDR 自检",       "电压校准系数",
+                               "触发滞回"};
+        // Two columns keep all 21 items visible at native 16x24 resolution.
+        for (unsigned row = 4; row < 23; row++)
+            for (unsigned col = 8; col < 63; col++)
+                screen[row * 80 + col] = ' ';
+        text(4, 9, "设置菜单 / K1 选择 / K2 修改");
+        for (unsigned j = 0; j < 21; j++)
+            text(6 + j % 11, 9 + (j / 11) * 27, "%c %02u %s", j == selection ? '>' : ' ', j + 1,
+                 items[j]);
     }
 }
 
@@ -356,8 +467,8 @@ static uint32_t vertical_scale(uint32_t w) {
     if (cfg.mode == FFT || cfg.mode == EYE || cfg.mode == DPX)
         return w;
     int center = 609 - (int)(cfg.zero * 539 / 4095.0);
-    int top = center + (((int)(w & 1023) - center) * (1 << cfg.gain));
-    int bottom = center + (((int)(w >> 10) - center) * (1 << cfg.gain));
+    int top = 340 + (((int)(w & 1023) - center) * (1 << cfg.gain));
+    int bottom = 340 + (((int)(w >> 10) - center) * (1 << cfg.gain));
     if (top < 70)
         top = 70;
     if (top > 609)
@@ -379,13 +490,16 @@ static void upload(void) {
     uint64_t begin = now();
     draw_ui();
     for (i = 0; i < SCOPE_W; i++)
-        scope_write(0x20000 + 4 * i, valid_record ? vertical_scale(wave[i]) : 0);
+        scope_write(0x20000 + 4 * i, page_dac       ? dac_preview(i)
+                                     : valid_record ? vertical_scale(wave[i])
+                                                    : 0);
     if (cfg.mode == DPX || cfg.mode == EYE)
         for (i = 0; i < HIST_W * HIST_H; i++)
             scope_write(0x40000 + 4 * i, hist[i]);
-    for (i = 0; i < 7200; i++)
-        scope_write(0x80000 + 4 * i, (uint8_t)screen[i]);
-    scope_write(R_OWNER, 1 | (menu << 1) | (selection << 2) | (displayed_source_sim() << 7));
+    for (i = 0; i < 2400; i++)
+        scope_write(0x80000 + 4 * i, screen[i]);
+    scope_write(R_OWNER, 1 | (menu << 1) | (selection << 2) |
+                             ((page_dac ? 0 : displayed_source_sim()) << 7) | (page_dac << 8));
     scope_write(R_CRC,
                 scope_crc32(screen, sizeof(screen)) ^ scope_crc32(wave, sizeof(wave)) ^
                     ((cfg.mode == DPX || cfg.mode == EYE) ? scope_crc32(hist, sizeof(hist)) : 0));
@@ -484,6 +598,14 @@ static void process_record(void) {
     // Release only AFTER copying the frozen ring. All analysis uses this private snapshot.
     scope_write(R_RELEASE, 1);
     scope_measure(record, SCOPE_N, cfg.rate, &measurement);
+    if (auto_scale && cfg.mode == DSO && measurement.max - measurement.min >= 16) {
+        cfg.zero = (measurement.max + measurement.min) / 2.0;
+        cfg.gain = 0;
+        while (cfg.gain < 6 && (measurement.max - measurement.min) * (1u << (cfg.gain + 1)) < 3000)
+            cfg.gain++;
+        if (measurement.frequency_valid)
+            cfg.span = (unsigned)fmin(16384, fmax(64, 3 * cfg.rate / measurement.frequency));
+    }
     if (cfg.mode == FFT)
         fft_wave();
     else if (cfg.mode == DPX || cfg.mode == EYE) {
@@ -823,6 +945,24 @@ static void handle_keys(void) {
     }
 }
 static void dispatch(char *line) {
+    rpc_id = 0;
+    if (line[0] == '@') {
+        if (strlen(line) < 11 || line[9] != ' ') {
+            reply(0, "code=RPC_HEADER");
+            return;
+        }
+        char token[9];
+        memcpy(token, line + 1, 8);
+        token[8] = 0;
+        char *end;
+        unsigned long id = strtoul(token, &end, 16);
+        if (*end) {
+            reply(0, "code=RPC_ID");
+            return;
+        }
+        rpc_id = (uint32_t)id;
+        line += 10;
+    }
     char *a[8], *p = strtok(line, " ");
     unsigned n = 0;
     while (p && n < 8) {
@@ -831,6 +971,74 @@ static void dispatch(char *line) {
     }
     if (!n)
         return;
+    if (dac_command(n, a))
+        return;
+    if (n == 2 && !strcmp(a[0], "page") && (!strcmp(a[1], "adc") || !strcmp(a[1], "dac"))) {
+        page_dac = !strcmp(a[1], "dac");
+        menu = 0;
+        dirty = 1;
+        reply(1, "page=%s", a[1]);
+        return;
+    }
+    if (n == 1 && !strcmp(a[0], "settings")) {
+        reply(
+            1,
+            "mode=%s run=%u source=%s rate=%u span=%u gain=%u zero=%.3f offset=%u segment=%u level=%u hyst=%u edge=%u trig=%u fft_n=%u hann=%u bitrate=%u uv_per_code=%.6f page=%s",
+            modes[cfg.mode], cfg.run, cfg.sim ? "SIM" : "ADC", cfg.rate, cfg.span, cfg.gain,
+            cfg.zero, cfg.offset, cfg.segment, cfg.level, cfg.hyst, cfg.edge, cfg.trig, cfg.fft_n,
+            cfg.hann, cfg.bitrate, cfg.uv_per_code, page_dac ? "DAC" : "ADC");
+        return;
+    }
+    if (n == 3 && !strcmp(a[0], "view")) {
+        double v;
+        if (!number(a[2], &v))
+            goto bad;
+        if (!strcmp(a[1], "auto") && (v == 0 || v == 1))
+            auto_scale = (unsigned)v;
+        else if (!strcmp(a[1], "span") && v >= 64 && v <= 16384 && v == (unsigned)v)
+            cfg.span = (unsigned)v;
+        else if (!strcmp(a[1], "gain") && v >= 0 && v <= 6 && v == (unsigned)v)
+            cfg.gain = (unsigned)v;
+        else if (!strcmp(a[1], "zero") && v >= 0 && v <= 4095)
+            cfg.zero = v;
+        else if (!strcmp(a[1], "offset") && v >= 0 && v <= 1048575 && v == (unsigned)v)
+            cfg.offset = (unsigned)v;
+        else if (!strcmp(a[1], "segment") && v >= 0 && v < 8 && v == (unsigned)v)
+            cfg.segment = (unsigned)v;
+        else if (!strcmp(a[1], "hyst") && v >= 0 && v <= 255 && v == (unsigned)v) {
+            cfg.hyst = (unsigned)v;
+            apply();
+        } else
+            goto bad;
+        dirty = 1;
+        reply(1, "view_%s=%.3f", a[1], v);
+        return;
+    }
+    if (n == 1 && !strcmp(a[0], "autoscale")) {
+        if (!valid_record) {
+            reply(0, "code=NO_CAPTURE");
+            return;
+        }
+        cfg.zero = (measurement.max + measurement.min) / 2.0;
+        cfg.gain = 0;
+        while (cfg.gain < 6 && (measurement.max - measurement.min) * (1u << (cfg.gain + 1)) < 3000)
+            cfg.gain++;
+        if (measurement.frequency_valid) {
+            double span = 3 * cfg.rate / measurement.frequency;
+            cfg.span = (unsigned)fmin(16384, fmax(64, span));
+        }
+        dirty = 1;
+        reply(1, "autoscale span=%u gain=%u zero=%.3f", cfg.span, cfg.gain, cfg.zero);
+        return;
+    }
+    if (n == 1 && !strcmp(a[0], "rearm")) {
+        reply(apply(), "rearmed");
+        return;
+    }
+    if (n == 1 && !strcmp(a[0], "uart")) {
+        reply(1, "uart_rx_lost=%u baud=115200 rpc=1", uart_lost);
+        return;
+    }
     if (!strcmp(a[0], "help")) {
         reply(
             1,
@@ -840,7 +1048,7 @@ static void dispatch(char *line) {
     if (!strcmp(a[0], "ver")) {
         reply(
             1,
-            "product=Z7_SCOPE fw=3.0 rtl=%08lx source_sha=%08lx fw_sha=%08lx id=%08lx SDK=2018.3 qualification=BENCH_PENDING",
+            "product=Z7_SCOPE fw=4.0 rtl=%08lx source_sha=%08lx fw_sha=%08lx id=%08lx SDK=2018.3 qualification=BENCH_PENDING",
             (unsigned long)scope_read(R_VER), (unsigned long)scope_read(0xf4),
             (unsigned long)SCOPE_FW_SHA, (unsigned long)scope_read(R_ID));
         return;
@@ -861,7 +1069,7 @@ static void dispatch(char *line) {
             "valid=%u source=%s min=%u max=%u mean=%.4f rms_code=%.4f frequency=%.4f frequency_valid=%u overrange=%u calibrated=%u",
             valid_record, displayed_source_sim() ? "SIM" : "ADC", measurement.min, measurement.max,
             measurement.mean, measurement.rms, measurement.frequency, measurement.frequency_valid,
-            measurement.overrange, cfg.uv_per_code > 0);
+            measurement.overrange, adc_calibrated);
         return;
     }
     if (!strcmp(a[0], "segments")) {
@@ -1046,6 +1254,7 @@ static void dispatch(char *line) {
             zero > 4095)
             goto bad;
         cfg.uv_per_code = scale;
+        adc_calibrated = 1;
         cfg.zero = zero;
         dirty = 1;
         reply(1, "cal_uv_per_code=%.6f zero=%.3f", scale, zero);
@@ -1140,8 +1349,9 @@ static void process_roll(void) {
     dirty = 1;
 }
 static void poll_uart(void) {
-    while (XUartPs_IsReceiveData(XPAR_XUARTPS_0_BASEADDR)) {
-        unsigned ch = XUartPs_ReadReg(XPAR_XUARTPS_0_BASEADDR, XUARTPS_FIFO_OFFSET);
+    while (uart_tail != uart_head) {
+        unsigned ch = uart_rx[uart_tail];
+        uart_tail = (uart_tail + 1) & 1023;
         if (ch == '\r' || ch == '\n') {
             if (command_len) {
                 command[command_len] = 0;
@@ -1174,7 +1384,7 @@ int main(void) {
     debug_init();
     if (!uart_init())
         return 1;
-    printf("\r\nZ7_SCOPE BOOT fw=3.0 SDK=2018.3 DDR DMA reserved 0x10000000..0x105FFFFF\r\n");
+    printf("\r\nZ7_SCOPE BOOT fw=4.0 SDK=2018.3 DDR DMA reserved 0x10000000..0x105FFFFF\r\n");
     DEBUG_MAILBOX->stage = 2;
     if (scope_read(R_ID) != 0x53434f50) {
         printf("ERR code=PL_ID_MISMATCH\r\n");
@@ -1192,6 +1402,8 @@ int main(void) {
         }
     }
     DEBUG_MAILBOX->stage = 5;
+    if (!dac_generate(0, 1000, 0.1, 0.5, 0.5, 0))
+        reply(0, "code=DAC_INIT");
     scope_write(R_OWNER, 1);
     apply();
     last_render = now();

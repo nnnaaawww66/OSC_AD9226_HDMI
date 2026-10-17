@@ -1,3 +1,15 @@
+# Z7 LAB 4.0 · ADC 示波器与独立 DAC904
+
+本次扩展入口见 `docs/DAC904_Extension.md`，上位机见 `host/README.md`。原工程已完整备份到 `D:\Xilinx\Projects\OSC_ad9226_hdmi_backup_before_DAC_20261017`。ADC 模块按用户给定 ±5V @50Ω 作标称换算；DAC 模块标称 5Vpp，默认保持中点，停止不代表高阻。
+
+- `build.ps1`：构建 FPGA、ARM、FSBL 和 BOOT.BIN，校验并封存。
+- `program.ps1`：易失 JTAG 调试下载。
+- `flash.ps1`：对封存镜像执行 QSPI 擦除、写入与验证；保留原 Flash 备份。
+- `flash.ps1 -RestoreOriginal`：用备份恢复原 Flash。
+- `host/launch.ps1` 或发布版 `Z7_LAB.exe`：中文上位机，COM27 / 115200。
+
+以下为 ADC 基础版本说明；与 4.0 扩展不一致时，以本次扩展说明与实测交付报告为准。原“一小时”测试结果只证明原 ADC 发布版本，不替代新版本实测。
+
 # Z7-Lite AD9226 多模式示波器
 
 在用户创建的 `OSC_ad9226_hdmi.xpr` 中实施。目标为 XC7Z010-1CLG400、Vivado/SDK 2018.3。本工程是可核查的开发版本；实板验收状态见 `docs/Acceptance.json`，不能用仿真结果代替 HDMI、电压、DDR 带宽或一小时稳定性测试。
@@ -34,3 +46,4 @@ DPX/EYE 的采集率、直方图更新率、UI 上传率和视频帧率是不同
 已修复 proc_sys_reset 辅助复位默认接高导致 AXI/采集永久复位的问题，加入显式常量连接、构建门禁及负向回归。`program.ps1` 会复位 PS、配置 PL、初始化 DDR、下载 ARM，并经 OCM 验证主循环启动；单独加载 bit 不会启动 ARM 程序。
 
 只接 JTAG 即可执行 `./jtag.ps1 ver`、`./jtag.ps1 status`、`./jtag.ps1 selftest`、`./jtag.ps1 measure`。实际四档采样、七模式 HDMI、DDR、ILA、1000 次切换、五次热重启及一小时观测见 `results/2026-10-17/prd_completion`。`tests/verify_release.py --require-soak` 检查发布文件、15 组 RTL 结果、正式时序、实板证据及完整长测，未完成长测不会产生 PASS；`tests/write_acceptance.py` 据此生成资格记录。本次没有写 Flash。
+
