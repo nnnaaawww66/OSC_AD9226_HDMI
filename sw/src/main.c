@@ -25,7 +25,7 @@ static const char *modes[] = {"DSO", "DPX", "EYE", "FFT", "ROLL", "MEM", "SEG"};
 typedef struct {
     unsigned mode, run, sim, level, hyst, edge, trig, rate, fft_n, hann, bitrate, span, segment,
         offset, encoding, gain;
-    double uv_per_code, zero;
+    double uv_per_code, zero, cal_zero;
 } settings;
 static settings cfg = {DSO,
                        1,
@@ -44,6 +44,7 @@ static settings cfg = {DSO,
                        0,
                        0,
                        10000000.0 / 4095.0,
+                       2047.5,
                        2047.5},
                 saved;
 static uint16_t record[SCOPE_N] __attribute__((aligned(64)));
@@ -52,7 +53,7 @@ static uint8_t hist[HIST_W * HIST_H];
 static float re[4096], im[4096], spectrum[2048];
 static uint16_t screen[2400];
 static char command[160];
-static unsigned adc_calibrated, auto_scale;
+static unsigned adc_calibrated, auto_scale, saved_calibrated, saved_auto_scale;
 static unsigned command_len, sequence, menu, selection;
 static unsigned mem_gate, mem_valid, seg_count, last_record, valid_record, refreshes,
     captures_processed, hist_updates, key_lost, dirty = 1;
@@ -322,7 +323,7 @@ static void axes(void) {
             if (cfg.mode != EYE && cfg.mode != DPX)
                 code = cfg.zero + (code - 2047.5) / (1u << cfg.gain);
             if (cfg.uv_per_code > 0)
-                text(row, 0, "%4.2f", (code - cfg.zero) * cfg.uv_per_code / 1e6);
+                text(row, 0, "%4.2f", (code - cfg.cal_zero) * cfg.uv_per_code / 1e6);
             else
                 text(row, 0, "%4.0f", code);
         }
@@ -396,8 +397,13 @@ static void draw_ui(void) {
         text(7, 67, "%u 码值", measurement.max - measurement.min);
     else
         text(7, 67, "等待采样");
-    text(9, 67, "电平均值");
-    text(10, 67, "%.2f code", measurement.mean);
+    text(9, 67, "RMS / %s", adc_calibrated ? "已校准" : "标称值");
+    double rms_v =
+        sqrt(fmax(0, measurement.rms * measurement.rms - 2 * cfg.cal_zero * measurement.mean +
+                         cfg.cal_zero * cfg.cal_zero)) *
+        cfg.uv_per_code / 1e6;
+    text(10, 67, "%.4f V", rms_v);
+    text(11, 67, "均值 %.3f V", (measurement.mean - cfg.cal_zero) * cfg.uv_per_code / 1e6);
     text(12, 67, "触发设置");
     text(13, 67, "%s / %s",
          cfg.trig == 0   ? "自动"
@@ -983,10 +989,11 @@ static void dispatch(char *line) {
     if (n == 1 && !strcmp(a[0], "settings")) {
         reply(
             1,
-            "mode=%s run=%u source=%s rate=%u span=%u gain=%u zero=%.3f offset=%u segment=%u level=%u hyst=%u edge=%u trig=%u fft_n=%u hann=%u bitrate=%u uv_per_code=%.6f page=%s",
+            "mode=%s run=%u source=%s rate=%u span=%u gain=%u zero=%.3f offset=%u segment=%u level=%u hyst=%u edge=%u trig=%u fft_n=%u hann=%u bitrate=%u uv_per_code=%.6f cal_zero=%.3f encoding=%u auto_scale=%u calibrated=%u page=%s",
             modes[cfg.mode], cfg.run, cfg.sim ? "SIM" : "ADC", cfg.rate, cfg.span, cfg.gain,
             cfg.zero, cfg.offset, cfg.segment, cfg.level, cfg.hyst, cfg.edge, cfg.trig, cfg.fft_n,
-            cfg.hann, cfg.bitrate, cfg.uv_per_code, page_dac ? "DAC" : "ADC");
+            cfg.hann, cfg.bitrate, cfg.uv_per_code, cfg.cal_zero, cfg.encoding, auto_scale,
+            adc_calibrated, page_dac ? "DAC" : "ADC");
         return;
     }
     if (n == 3 && !strcmp(a[0], "view")) {
@@ -1256,6 +1263,7 @@ static void dispatch(char *line) {
         cfg.uv_per_code = scale;
         adc_calibrated = 1;
         cfg.zero = zero;
+        cfg.cal_zero = zero;
         dirty = 1;
         reply(1, "cal_uv_per_code=%.6f zero=%.3f", scale, zero);
         return;
@@ -1275,9 +1283,11 @@ static void dispatch(char *line) {
         }
     }
     if (n == 2 && !strcmp(a[0], "config")) {
-        if (!strcmp(a[1], "save"))
+        if (!strcmp(a[1], "save")) {
             saved = cfg;
-        else if (!strcmp(a[1], "load")) {
+            saved_calibrated=adc_calibrated;
+            saved_auto_scale=auto_scale;
+        } else if (!strcmp(a[1], "load")) {
             if (!saved.rate) {
                 reply(0, "code=NO_SAVED_CONFIG");
                 return;
@@ -1295,6 +1305,8 @@ static void dispatch(char *line) {
                 return;
             }
             cfg = saved;
+            adc_calibrated=saved_calibrated;
+            auto_scale=saved_auto_scale;
             apply();
         } else
             goto bad;

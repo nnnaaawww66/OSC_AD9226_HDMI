@@ -20,7 +20,9 @@ while {1} {
  if {[clock milliseconds]>$deadline} {error "QSPI read timeout $r"}
  after 250
 }
-set f [open $out/chip_and_crc.txt w];puts $f $r;close $f
+set f [open $out/chip_and_crc.txt w]
+puts $f [format "magic=%08x state=%u jedec=%06x bytes=%u crc32=%08x" [lindex $r 0] [lindex $r 1] [lindex $r 2] [lindex $r 3] [lindex $r 4]]
+close $f
 mrd -address-space AP0 -bin -file $out/qspi_16MiB.bin 0x11000000 4194304
 if {[file size $out/qspi_16MiB.bin]!=16777216} {error "Incomplete QSPI backup"}
 disconnect

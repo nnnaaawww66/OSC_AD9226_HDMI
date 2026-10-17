@@ -41,6 +41,10 @@ int main(void){
  assert(commits==3 && dac_shape==5 && dac_table[2047]==16376);
  readback_fault=1;assert(!dac_generate(0,1000,.5,.5,.5,1));assert(commits==3);readback_fault=0;
  assert(!dac_generate(0,NAN,.5,.5,.5,1));
+ command_line("cal 2000 2050");command_line("config save");
+ command_line("view zero 1000");assert(cfg.zero==1000 && cfg.cal_zero==2050);
+ command_line("cal 1000 2000");command_line("config load");
+ assert(cfg.cal_zero==2050 && cfg.uv_per_code==2000 && adc_calibrated);
  puts("PASS independent firmware: ADC/DAC configuration isolation, argument rejection, transactional uploads, CRC, readback failure prevents commit");
  return 0;
 }

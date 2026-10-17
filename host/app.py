@@ -187,8 +187,11 @@ class Window(QMainWindow):
                 if value=='adc':value='real'
                 idx=widget.findData(value)
                 if idx>=0:widget.setCurrentIndex(idx)
-        for key,widget in [('span',self.span),('zero',self.zero),('offset',self.offset),('segment',self.segment),('level',self.level),('hyst',self.hyst),('uv_per_code',self.uv)]:
+        for key,widget in [('span',self.span),('zero',self.zero),('offset',self.offset),('segment',self.segment),('level',self.level),('hyst',self.hyst),('uv_per_code',self.uv),('cal_zero',self.cal_zero)]:
             if key in values:widget.setValue(float(values[key]))
+        if 'encoding' in values:self.encoding.setCurrentIndex(int(values['encoding']))
+        if 'auto_scale' in values:
+            self.auto_scale.blockSignals(True);self.auto_scale.setChecked(bool(int(values['auto_scale'])));self.auto_scale.blockSignals(False)
         if 'trig' in values:self.trig_type.setCurrentIndex(int(values['trig']))
         if 'edge' in values:self.edge.setCurrentIndex(int(values['edge']))
         if 'hann' in values:self.fft_window.setCurrentIndex(0 if int(values['hann']) else 1)
