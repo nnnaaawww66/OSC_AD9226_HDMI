@@ -47,7 +47,7 @@ for path in (result/'simulation').rglob('*'):
         add(path)
 for name in ('ui_rtl.png','ui_vga.png','host_test.log','rtl_display.log','vga_display.log'):
     add(result/'ui_sim'/name)
-excluded = {'HDMI_REAL_baseline.png','release_7378052_console.log',
+excluded = {'package_release_console.log','HDMI_REAL_baseline.png','release_7378052_console.log',
             'release_console.log','release_final_console.log','release_export_console.log',
             'sdk_7378052.log','sdk_build.log','sdk_release.log','functional_hil_console.log',
             'ila_analysis.log','ila_capture_console.log','ila_capture.log',
