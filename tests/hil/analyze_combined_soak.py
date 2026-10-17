@@ -20,6 +20,7 @@ for before,after in zip(rows,rows[1:]):
     assert phase==(clocks*step)&0xffffffff
 span=float(t[-1]-t[0]);vspan=video[-1]['elapsed_s']-video[0]['elapsed_s'];fps=(video[-1]['frames']-video[0]['frames'])/vspan
 assert fps>=24
+assert max(np.diff([r['elapsed_s'] for r in video]))<3,'USB capture observation gap >=3s'
 if a.require_hour:
     assert span>=3600 and vspan>=3600
     summary=json.loads((folder/'summary.json').read_text());assert summary['status']=='PASS' and summary['single_boot']

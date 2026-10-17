@@ -1,8 +1,10 @@
 """Package only sealed current outputs and explicit 4.0 evidence."""
-import argparse,hashlib,json,subprocess,zipfile
+import argparse,hashlib,json,subprocess,zipfile,sys
 from pathlib import Path
 r=Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser();p.add_argument('--output',required=True);a=p.parse_args();out=Path(a.output);out.mkdir(parents=True,exist_ok=True)
+subprocess.run([sys.executable,str(r/'tests/verify_dac_release.py')],cwd=r,check=True)
+subprocess.run([sys.executable,str(r/'tools/write_dac_report.py')],cwd=r,check=True)
 def sha(path):return hashlib.sha256(path.read_bytes()).hexdigest()
 sealed=json.loads((r/'results/2026-10-17/release_artifacts.json').read_text(encoding='utf-8-sig'))
 for f in sealed['files']:assert sha(r/'results/2026-10-17'/f['name'])==f['sha256']

@@ -1,7 +1,7 @@
 """A continuous real-board ADC/DAC + direct USB HDMI monitor.
 No desktop capture. All evidence is for a single boot and uninterrupted run.
 """
-import argparse,datetime,json,re,threading,time,zlib,sys
+import argparse,datetime,json,re,threading,time,zlib,sys,os
 from pathlib import Path
 import av,numpy as np,serial
 r=Path(__file__).resolve().parents[2]
@@ -11,7 +11,7 @@ stop=threading.Event();video={};video_error=[]
 def camera():
     source=None
     try:
-        source=av.open('video=USB3 Video',format='dshow',options={'video_size':'1280x720','framerate':'30'})
+        source=av.open('video=USB3 Video',format='dshow',options={'video_size':'1280x720','framerate':'30','rtbufsize':'256M'})
         start=None;frames=0;observations=0;next_check=0;last_snap=-1;last_signature=None;last_change=None
         with (out/'video.jsonl').open('w') as log:
             for n,frame in enumerate(source.decode(video=0)):
@@ -33,13 +33,13 @@ def camera():
                     log.write(json.dumps(dict(elapsed_s=elapsed,frames=frames,footer_crc=f'{sig:08x}',sim=sim))+'\n');log.flush();observations+=1;next_check=elapsed+1
                     bucket=int(elapsed//600)
                     if bucket!=last_snap:frame.to_image().save(out/f'HDMI_{bucket*600:04d}.png');last_snap=bucket
-                video.update(duration_s=elapsed,frames=frames,observations=observations,fps=frames/max(elapsed,.001))
+                video.update(duration_s=elapsed,frames=frames,observations=observations,fps=frames/max(elapsed,.001),last_frame_monotonic=now)
                 if elapsed>=a.seconds:frame.to_image().save(out/'HDMI_final.png');break
     except BaseException as exc:video_error.append(str(exc));stop.set()
     finally:
         if source:source.close()
 thread=threading.Thread(target=camera,daemon=True)
-rid=0;rows=[];start=None;fail=None
+rid=0;rows=[];start=None;fail=None;version={}
 def fields(s):return dict(re.findall(r'(\w+)=([^ ]+)',s))
 with serial.Serial(a.port,115200,timeout=.1,write_timeout=2) as port:
     def ask(command):
@@ -53,11 +53,13 @@ with serial.Serial(a.port,115200,timeout=.1,write_timeout=2) as port:
         raise TimeoutError(command)
     try:
         for cmd in ['adc source real','mode dso','run 1','adc rate 65','trig type auto','view auto 0','view gain 0','view zero 2047.5','view span 4096','page adc','dac set sine 1000 0.1 0.5 0.5 1']:ask(cmd)
-        assert int(ask('ver')['rtl'],16)>=0x40000
+        version=ask('ver');assert int(version['rtl'],16)>=0x40000
         thread.start();start=time.monotonic();previous=None
         with (out/'serial.jsonl').open('w') as log:
             while time.monotonic()-start<a.seconds+2:
                 assert not video_error,video_error
+                if time.monotonic()-start>20:
+                    assert video and time.monotonic()-video['last_frame_monotonic']<10,'USB HDMI capture stalled for 10 seconds'
                 state=ask('status');dac=ask('dac status');uart=ask('uart')
                 assert state['source']=='ADC' and state['rate']=='65000000' and state['run']=='1' and state['mode']=='DSO'
                 assert int(state['otr'])==0 and int(state['drop'])==0 and int(state['errors'],16)==0 and int(state['irq_lost'])==0
@@ -82,6 +84,11 @@ with serial.Serial(a.port,115200,timeout=.1,write_timeout=2) as port:
             try:ask(cmd)
             except Exception:pass
         stop.set();thread.join(timeout=3) if thread.ident else None
-result=dict(status='FAIL' if fail else 'PASS' if a.seconds>=3600 else 'SHORT_TEST_PASS',error=fail,requested_s=a.seconds,serial_duration_s=rows[-1]['elapsed_s']-rows[0]['elapsed_s'] if len(rows)>1 else 0,checks=len(rows),video=video,video_errors=video_error,folder=str(out),single_boot=True)
+result=dict(status='FAIL' if fail else 'PASS' if a.seconds>=3600 else 'SHORT_TEST_PASS',error=fail,requested_s=a.seconds,serial_duration_s=rows[-1]['elapsed_s']-rows[0]['elapsed_s'] if len(rows)>1 else 0,checks=len(rows),video=video,video_errors=video_error,folder=str(out),single_boot=True,version=version)
 (out/'summary.json').write_text(json.dumps(result,indent=2));print(json.dumps(result),flush=True)
+if thread.is_alive():
+    # A blocked DirectShow read cannot be cancelled by a Python Event. The
+    # serial cleanup and evidence flush above have already completed.
+    # Release this process's device handles without hanging at interpreter exit.
+    os._exit(1)
 if fail:raise SystemExit(1)

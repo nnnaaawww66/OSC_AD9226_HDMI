@@ -204,7 +204,13 @@ class Window(QMainWindow):
         values=dict(re.findall(r'(\w+)=([^ ]+)',line))
         if cmd=='settings' and getattr(self,'refresh_pending',False):self.sync_controls(values);self.refresh_pending=False
         labels={'mode':'模式','run':'运行','source':'来源','rate':'采样率','span':'视窗点数','gain':'增益级别','zero':'中心码值','level':'触发电平','hyst':'触发滞回','fft_n':'FFT 点数','bitrate':'EYE 码率','dac_enabled':'DAC 输出','shape':'波形','fs':'DAC 更新率','actual_hz':'实际设定 Hz','amplitude_fs':'峰峰值 FS','offset_fs':'偏置 FS','duty':'占空比','table_crc':'波形 CRC','cycles':'DAC 时钟计数','frequency':'频率 Hz','frequency_valid':'频率有效','min':'最小码值','max':'最大码值','mean':'平均码值','calibrated':'已实测校准'}
-        readable='  |  '.join(f'{labels[k]}: {v}' for k,v in values.items() if k in labels)
+        translations={
+            'mode':{'DSO':'示波器','DPX':'DPX 密度','EYE':'EYE 眼图','FFT':'FFT 频谱','ROLL':'滚动','MEM':'长存储','SEG':'分段'},
+            'shape':{'sine':'正弦波','square':'方波','triangle':'三角波','saw':'锯齿波','dc':'直流','custom':'自定义表'},
+            'source':{'ADC':'实际输入','SIM':'SIM 测试源'},
+            'run':{'0':'STOP','1':'RUN'},'dac_enabled':{'0':'保持中点','1':'运行'},
+            'calibrated':{'0':'否，使用标称比例','1':'是'},'frequency_valid':{'0':'否','1':'是'}}
+        readable='  |  '.join(f'{labels[k]}: {translations.get(k,{}).get(v,v)}' for k,v in values.items() if k in labels)
         if cmd=='dac status':self.dac_status.setPlainText(readable)
         elif cmd in ['settings','measure','status']:self.adc_status.setPlainText(self.adc_status.toPlainText()[-1400:]+'\n'+readable)
         if cmd=='dac status':

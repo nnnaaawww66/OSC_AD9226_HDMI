@@ -28,4 +28,5 @@ boot/*.elf
 boot/*.bit
 boot/*.BIN
 boot/manifest.json
+host/dist/
 
