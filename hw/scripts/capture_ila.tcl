@@ -26,7 +26,8 @@ foreach ila $ilas {
   set_property TRIGGER_COMPARE_VALUE $pattern $probe
   run_hw_ila $ila
   puts "ILA_AXI_ARMED";flush stdout
-  set response [exec D:/Xilinx/SDK/2018.3/bin/xsct.bat $root/hw/scripts/jtag_console.tcl memory bandwidth]
+  set response [exec D:/Xilinx/SDK/2018.3/bin/xsct.bat $root/hw/scripts/jtag_console.tcl memory bandwidth 2>@1]
+  if {![string match *JTAG_COMMAND_PASS* $response]} {error "DDR stress command failed: $response"}
   puts $response
  } else {run_hw_ila -trigger_now $ila}
  wait_on_hw_ila -timeout 20 $ila
