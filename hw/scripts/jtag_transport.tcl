@@ -1,4 +1,14 @@
 # OCM mailbox ABI v1. Call after connecting and selecting APU.
+proc scope_jtag_restore_real {} {
+ set ok 1
+ foreach cmd {{adc source real} {mode dso} {trig type auto} {run 1}} {
+  if {[catch {scope_jtag_command $cmd 3000} why]} {
+   puts stderr "JTAG_CLEANUP_FAILED command=$cmd reason=$why"
+   set ok 0
+  }
+ }
+ return $ok
+}
 proc scope_jtag_command {cmd {timeout 60000}} {
  set base 0x2f000
  if {[string length $cmd]>159} {error "Command exceeds 159 bytes"}

@@ -62,5 +62,5 @@ check {adc source real} source=ADC
 puts $out "PASS $cycles hardware mode transitions; video $first -> $last";close $out
 disconnect
 puts "JTAG_HIL_PASS cycles=$cycles"
-} failure]} {puts stderr "JTAG_HIL_FAILED: $failure";exit 1}
+} failure]} {scope_jtag_restore_real;puts stderr "JTAG_HIL_FAILED: $failure";exit 1}
 exit 0

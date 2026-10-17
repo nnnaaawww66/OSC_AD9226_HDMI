@@ -75,5 +75,5 @@ check status errors=00000000
 check video pixel_crc32=
 puts $out "PRD_FUNCTIONAL_HIL_PASS rates=4 mode_transitions=1000 final_source=ADC";flush $out
 puts PRD_FUNCTIONAL_HIL_PASS
-} why]} {puts $out "FAIL $why";close $out;puts stderr $why;exit 1}
+} why]} {puts $out "FAIL $why";flush $out;scope_jtag_restore_real;close $out;puts stderr $why;exit 1}
 close $out;disconnect;exit 0

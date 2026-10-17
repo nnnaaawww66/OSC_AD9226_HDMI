@@ -10,7 +10,8 @@ if not a.port:
  a.port=ports[0]
 root=Path(__file__).resolve().parents[2];out=root/'results/2026-10-17/hil';out.mkdir(exist_ok=True)
 raw=(out/'uart.bin').open('ab');log=(out/'uart.log').open('a',encoding='utf-8')
-s=serial.Serial(a.port,115200,timeout=.1);results=[]
+s=serial.Serial(a.port,115200,timeout=.1);results=[];cleanup_error=None
+result_path=out/'result.json';result_path.unlink(missing_ok=True)
 def command(text,expect,timeout=8):
  s.write((text+'\r\n').encode());start=time.monotonic();seen=[]
  while time.monotonic()-start<timeout:
@@ -31,6 +32,15 @@ try:
  deadline=time.monotonic()+a.soak_seconds
  while time.monotonic()<deadline:
   command('status','errors=00000000');time.sleep(1)
- (out/'result.json').write_text(json.dumps({'status':'PASS','port':a.port,'mode_cycles':a.mode_cycles,'soak_seconds':a.soak_seconds,'responses':results},indent=2))
- print('PASS hardware serial checks; HDMI and analog-instrument observations remain separate evidence.')
-finally:s.close();raw.close();log.close()
+finally:
+ try:
+  for text,expected in [('adc source real','source=ADC'),('mode dso','mode=DSO'),
+                        ('trig type auto','trigger_updated'),('run 1','run=1')]:
+   try:command(text,expected)
+   except Exception as exc:
+    if cleanup_error is None:cleanup_error=exc
+    print('UART_CLEANUP_FAILED:',text,exc,file=sys.stderr)
+ finally:s.close();raw.close();log.close()
+if cleanup_error:raise cleanup_error
+result_path.write_text(json.dumps({'status':'PASS','port':a.port,'mode_cycles':a.mode_cycles,'soak_seconds':a.soak_seconds,'final_source':'ADC','responses':results},indent=2))
+print('PASS hardware serial checks; HDMI and analog-instrument observations remain separate evidence.')

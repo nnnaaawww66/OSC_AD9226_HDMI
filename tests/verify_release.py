@@ -64,6 +64,7 @@ drc = read(OUT / 'drc.rpt')
 assert not re.search(r'\|\s*\S+\s*\|\s*(?:Error|Critical Warning)\s*\|', drc)
 marker(HIL / 'cdc_gate_test.log', 'CDC_GATE_TEST_PASS')
 marker(HIL / 'unsigned_counter_test.log', 'UNSIGNED_COUNTER_TEST_PASS')
+marker(HIL / 'hil_cleanup_test.log', 'HIL_CLEANUP_TEST_PASS')
 marker(HIL / 'functional_hil.log', 'PRD_FUNCTIONAL_HIL_PASS rates=4 mode_transitions=1000 final_source=ADC')
 observed = re.search(r'source_sha=([0-9a-f]{8}) fw_sha=([0-9a-f]{8})', read(HIL / 'functional_hil.log'))
 assert observed and observed[1] == seal['rtl_revision'], 'HIL evidence belongs to a different RTL build'
