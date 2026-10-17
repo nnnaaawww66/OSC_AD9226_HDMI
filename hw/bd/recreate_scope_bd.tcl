@@ -891,7 +891,7 @@ proc create_root_design { parentCell } {
      return 1
    }
     set_property -dict [ list \
-   CONFIG.ENABLE_RATE_SWITCH {0} \
+   CONFIG.ENABLE_RATE_SWITCH {1} \
    CONFIG.VIDEO_VGA {0} \
  ] $scope_0
 

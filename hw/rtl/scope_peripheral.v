@@ -742,7 +742,7 @@ module scope_peripheral
                                raster_valid,error_flags[7:0],config_busy,release_busy,
                                display_pending,dma_accepted[15:0]};
     wire [63:0] ila_video_bus = {video_frames[7:0],display.meta_pix[2:0],rgb,
-                                display.x_raw,display.y_raw,hs,vs,de,video_locked,front_bank};
+                                display.x_raw,display.y_raw,hs,vs,de,video_locked,display.bank_pix};
     scope_ila_adc ila_adc(.clk(adc_clk_in), .probe0(ila_adc_bus));
     scope_ila_sys ila_sys(.clk(clk), .probe0(ila_sys_bus));
     scope_ila_video ila_video(.clk(pixel_clk), .probe0(ila_video_bus));

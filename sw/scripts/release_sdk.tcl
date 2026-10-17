@@ -15,7 +15,11 @@ foreach f [glob $root/sw/src/* $root/sw/include/*] {file copy -force $f $root/sw
 file copy -force $root/sw/include/scope_debug.h $root/sw/sdk2018/scope_diag/src/
 foreach f [glob $root/sw/diag/*] {file copy -force $f $root/sw/sdk2018/scope_diag/src/}
 configapp -app scope build-config release
-configapp -app scope -set compiler-misc {-c -fmessage-length=0 -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -std=gnu99 -O2 -Wall -Wextra -Werror -Wno-unused-parameter}
+set fw_sha 00000000
+if {![catch {exec git -C $root rev-parse --short=8 HEAD} git_sha]} {set fw_sha [string trim $git_sha]}
+set compile_flags {-c -fmessage-length=0 -mcpu=cortex-a9 -mfpu=vfpv3 -mfloat-abi=hard -std=gnu99 -O2 -Wall -Wextra -Werror -Wno-unused-parameter}
+append compile_flags " -DSCOPE_FW_SHA=0x$fw_sha"
+configapp -app scope -set compiler-misc $compile_flags
 if {[catch {configapp -app scope libraries m} msg]} {if {![string match {*already contains the item m*} $msg]} {error $msg}}
 configapp -app scope_diag build-config release
 projects -build -type all

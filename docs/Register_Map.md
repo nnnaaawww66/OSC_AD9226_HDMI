@@ -4,6 +4,7 @@
 
 | 偏移 | 名称 | 方向与含义 |
 |---|---|---|
+| 0F8 | PIXEL_FRAME_CRC | RO，实际DE有效RGB888帧的IEEE CRC32 |
 | 0F0/0F4 | VIDEO_PROFILE/SOURCE_SHA | RO，0=720p、1=640×480；32位RTL源码Git摘要 |
 | 000/004 | ID/VERSION | RO，53434F50 / 00030000 |
 | 008 | CTRL | RW，bit0 RUN，1 SIM，2 FALL，4:3 Auto/Normal/Single，6补码，19:8阈值，27:20迟滞；完整邮箱握手后采样域应用 |
@@ -18,10 +19,10 @@
 | 03C | KEY_EVENT | RO高16位序号，15:4持续毫秒，2长按，1:0组合键；写完整事件应答IRQ |
 | 040 | ERRORS | RO/W1C，0DMA丢失，1新OTR事件，2直方图丢失；清除后只有新事件重锁 |
 | 044/048 | DMA_DROP/BYTES | RO，显式未交付点数 / 生产字节 |
-| 04C/050 | DMA_LENGTH/START | RW点数；写START bit0启动，bit1清空FIFO并中止源 |
+| 04C/050 | DMA_LENGTH/START | RW点数；写START bit0启动，bit1清空FIFO并中止源；bit2+bit0启动SYS域递增码带宽测试 |
 | 054/058 | DMA_ACCEPT/FLAGS | RO AXIS成功拍数 / bit13源active、12:0 FIFO水位 |
 | 05C/060 | COMMIT/DISPLAY | 写提交后缓冲；RO bit0pending、1前bank |
-| 064 | OWNER | bit0 PS接管；bit1菜单；6:2选项。0允许自主PL包络构建 |
+| 064 | OWNER | bit0 PS接管；bit1菜单；6:2选项；bit7为当前显示记录的SIM来源。0允许自主PL包络构建 |
 | 06C | RELEASE | 写脉冲释放冻结记录；Single仍保持，重新写配置才rearm |
 | 070/074/078 | UI_CRC/HITS/HDROP | RW快照内容CRC、最近统计成功命中与显式丢弃 |
 | 07C/080 | DMA_HWM/FALLBACK | RO DMA FIFO高水位 / PL包络状态 |
@@ -38,4 +39,4 @@
 | 80000–8707F | TEXT_BACK | WO160×45 ASCII字符 |
 | C0000–CE0FF | HIST_READ | RO共享PL直方图，扫描/RMW忙时禁止读 |
 
-快照CRC覆盖文字、包络以及当前有效密度平面，不是采集卡实拍像素CRC。静态字体和网格由版本与源文件SHA256标识。读取自由运行64位计数器应采用高/低/高重读；冻结触发元数据在释放前不变。
+0xF8为PL视频像素流实际CRC，覆盖有效区RGB。0x70的资产CRC覆盖文字、包络以及当前有效密度平面，不等于0xF8的视频像素CRC，也不等于采集卡经颜色转换后的图像CRC。静态字体和网格由版本与源文件SHA256标识。读取自由运行64位计数器应采用高/低/高重读；冻结触发元数据在释放前不变。

@@ -16,6 +16,10 @@
 #include <string.h>
 #include <math.h>
 
+#ifndef SCOPE_FW_SHA
+#define SCOPE_FW_SHA 0
+#endif
+
 enum { DSO, DPX, EYE, FFT, ROLL, MEM, SEG };
 static const char *modes[] = {"DSO", "DPX", "EYE", "FFT", "ROLL", "MEM", "SEG"};
 typedef struct {
@@ -836,9 +840,9 @@ static void dispatch(char *line) {
     if (!strcmp(a[0], "ver")) {
         reply(
             1,
-            "product=Z7_SCOPE fw=3.0 rtl=%08lx source_sha=%08lx id=%08lx SDK=2018.3 qualification=BENCH_PENDING",
+            "product=Z7_SCOPE fw=3.0 rtl=%08lx source_sha=%08lx fw_sha=%08lx id=%08lx SDK=2018.3 qualification=BENCH_PENDING",
             (unsigned long)scope_read(R_VER), (unsigned long)scope_read(0xf4),
-            (unsigned long)scope_read(R_ID));
+            (unsigned long)SCOPE_FW_SHA, (unsigned long)scope_read(R_ID));
         return;
     }
     if (n == 2 && !strcmp(a[0], "errors") && !strcmp(a[1], "clear")) {

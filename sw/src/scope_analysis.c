@@ -18,7 +18,7 @@ uint32_t scope_crc32(const void *src, unsigned n) {
 void scope_measure(const uint16_t *d, unsigned n, double fs, scope_measurements *o) {
     unsigned i;
     uint64_t sum = 0, sumsq = 0;
-    double first = 0, last = 0;
+    double first = 0, last = 0, period_squares = 0;
     int armed = 0;
     memset(o, 0, sizeof(*o));
     o->min = 4095;
@@ -48,12 +48,21 @@ void scope_measure(const uint16_t *d, unsigned n, double fs, scope_measurements 
             double t = i - 1 + (level - prev) / (cur - prev);
             if (!o->crossings)
                 first = t;
+            if (o->crossings) {
+                double delta = t - last;
+                period_squares += delta * delta;
+            }
             last = t;
             o->crossings++;
             armed = 0;
         }
     }
-    if (o->crossings >= 2 && last > first) {
+    if (o->crossings >= 3 && last > first) {
+        double periods = o->crossings - 1, mean_period = (last - first) / periods;
+        double variance = fmax(0, period_squares / periods - mean_period * mean_period);
+        /* Floating/broadband noise has crossings but no repeatable period. */
+        if (mean_period < 2 || sqrt(variance) > mean_period * 0.10)
+            return;
         o->frequency = fs * (o->crossings - 1) / (last - first);
         o->frequency_valid = 1;
     }

@@ -67,3 +67,13 @@ lib.scope_set_point_sink(CB())
 results['EYE_PHASE']='PASS 4 sample rates, 1..5Mb/s, +100ppm offset, long-running 64-bit indexes; no CDR claimed'
 (out/'analysis_tests.json').write_text(json.dumps(results,indent=2))
 print('PASS eye-phase mapping including frequency offset and long-run counters')
+
+for amplitude in [8,32,1000]:
+ data=rng.integers(2048-amplitude,2048+amplitude,16384,dtype=np.uint16)
+ lib.scope_measure(data,len(data),1e7,c.byref(m))
+ assert not m.frequency_valid,('noise falsely marked periodic',amplitude,m.frequency)
+data=np.full(16384,2048,dtype=np.uint16);data[42]=4095
+lib.scope_measure(data,len(data),1e7,c.byref(m));assert not m.frequency_valid
+results['NOISE_FREQUENCY']='PASS random floating/noise-like inputs and a single impulse never produce a periodic frequency'
+(out/'analysis_tests.json').write_text(json.dumps(results,indent=2))
+print('PASS period-consistency gate rejects broadband noise and isolated pulses')
