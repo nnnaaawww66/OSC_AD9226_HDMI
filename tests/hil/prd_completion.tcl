@@ -35,7 +35,7 @@ foreach rate {10 25 50 65} {
  set stamps {}
  foreach {match stamp} [regexp -all -inline {first=([0-9]+)} $segments] {lappend stamps $stamp}
  if {[llength $stamps]!=8} {error "Eight segment timestamps were not returned"}
- set stamps [lsort -integer $stamps]
+ set stamps [lsort -command scope_compare_sample_index $stamps]
  for {set j 1} {$j<8} {incr j} {if {[lindex $stamps $j]-[lindex $stamps [expr {$j-1}]]<16384} {error "Segment timestamps overlap"}}
  check {run 1} run=1
  check {mode dso} mode=DSO

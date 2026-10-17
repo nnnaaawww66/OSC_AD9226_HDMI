@@ -121,6 +121,7 @@ if (HIL / 'hdmi_endurance_result.json').exists():
 if args.require_soak:
     assert hdmi['status'] == 'PASS', 'Independent HDMI endurance has not completed'
     assert hdmi['first_observation_epoch_ms'] >= soak['first_observation_epoch_ms'], 'HDMI evidence predates this board run'
+    marker(HIL / 'final_board_state.log', 'FINAL_BOARD_STATE_PASS source=ADC rate=10000000 real_segments=8 flash_written=0')
 
 result = {'status': 'PASS' if soak['status'] == hdmi['status'] == 'PASS' else 'PENDING_SOAK',
           'artifact_hashes': 'PASS', 'rtl_revision': seal['rtl_revision'],

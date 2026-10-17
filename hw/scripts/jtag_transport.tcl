@@ -1,4 +1,8 @@
 # OCM mailbox ABI v1. Call after connecting and selecting APU.
+proc scope_compare_sample_index {left right} {
+ # Tcl 8.5 lsort -integer narrows values to 32 bits; expressions support bignums.
+ return [expr {$left<$right ? -1 : ($left>$right ? 1 : 0)}]
+}
 proc scope_jtag_restore_real {} {
  set ok 1
  foreach cmd {{adc source real} {mode dso} {trig type auto} {run 1}} {

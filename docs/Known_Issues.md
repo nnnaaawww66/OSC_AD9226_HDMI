@@ -10,6 +10,7 @@
 6. **EYE 长时间序号乘法溢出**：先对 64bit 样本序号取 2UI 周期模，再乘码率。四档采样、1～5Mb/s、100ppm 偏差和大序号金样本覆盖。
 7. **长测 PC 脚本在样本低字过 0x80000000 时误判倒退**：XSCT Tcl `%x` 产生有符号 32bit 结果；重组前用 `& 0xffffffff`。`tests/check_unsigned_counter.tcl` 覆盖 0x7fffffff、0x80000000、0xffffffff、进位至下一高字。此为观测脚本错误，不能据此修改 FPGA 正常的 64bit 计数器。
 8. **测试存储记录被误当真实输入回放**：MEM/SEG 保存并显示各自的来源。`program.ps1` 自检后额外采一份 REAL MEM；纯压力测试不产生有效 MEM 记录。
+9. **长时间运行后 PC 分段时间戳排序报 integer value too large**：SDK2018.3 的 Tcl `lsort -integer` 收窄为32bit；实际约2414亿的样本序号无法排序。改用支持大整数比较的回调，保持硬件64bit时间戳原值。`check_unsigned_counter.tcl` 可重现旧限制，并验证0、2^31、2^32、实际大序号及2^64-1；修复后最终八段真实ADC的CRC与时间戳检查通过。
 
 ## 保留的测试中断记录
 

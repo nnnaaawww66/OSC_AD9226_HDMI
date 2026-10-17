@@ -37,6 +37,8 @@ $env:PATH = 'C:\MinGW64\bin;' + $env:PATH
 
 `soak.tcl` 默认 3605 秒，初始选择 REAL / 65MSa/s / RUN，并进行自检及真实 MEM 采集。保持供电、JTAG 和来源/速率；切到 SIM 或其他速率会中止资格记录。RUN/STOP 和模式状态会进入原始日志；STOP 时间不冒充有效记录采集时间。分析必须看到完整 PASS 标记以及至少 3600000ms 的实际观测跨度，检查视频/原始 ADC 样本计数、心跳、锁、错误和丢样。中断记录另外命名，不能拼接成一小时。
 
+两路长测都结束后，可运行 `xsct.bat tests/hil/final_state.tcl`：恢复REAL/10MSa/s/DSO/RUN，执行当前档位自检，采集真实MEM，并核对八段REAL数据的CRC及64bit样本时间戳。其结果单独保存为 `final_board_state.log`；发布检查要求最终状态通过。不要在监视过程中运行该脚本改变采样档位。
+
 ## HDMI / ILA / 发布
 
 关闭占用采集卡的相机应用后，直接读取命名设备，不截桌面：

@@ -18,9 +18,9 @@
 | 034/038 | DEAD/VIDEO_FRAMES | RO，冻结死区样本数 / 真实视频消隐帧计数 |
 | 03C | KEY_EVENT | RO高16位序号，15:4持续毫秒，2长按，1:0组合键；写完整事件应答IRQ |
 | 040 | ERRORS | RO/W1C，0DMA丢失，1新OTR事件，2直方图丢失；清除后只有新事件重锁 |
-| 044/048 | DMA_DROP/BYTES | RO，显式未交付点数 / 生产字节 |
+| 044/048 | DMA_DROP/BYTES | RO，ADC源显式未交付点数 / ADC域源累计生产字节，不含SYS压力源 |
 | 04C/050 | DMA_LENGTH/START | RW点数；写START bit0启动，bit1清空FIFO并中止源；bit2+bit0启动SYS域递增码带宽测试 |
-| 054/058 | DMA_ACCEPT/FLAGS | RO AXIS成功拍数 / bit13源active、12:0 FIFO水位 |
+| 054/058 | DMA_ACCEPT/FLAGS | RO AXIS累计成功16bit拍数（含ADC及SYS压力源） / bit13源active、12:0 FIFO水位 |
 | 05C/060 | COMMIT/DISPLAY | 写提交后缓冲；RO bit0pending、1前bank |
 | 064 | OWNER | bit0 PS接管；bit1菜单；6:2选项；bit7为当前显示记录的SIM来源。0允许自主PL包络构建 |
 | 06C | RELEASE | 写脉冲释放冻结记录；Single仍保持，重新写配置才rearm |
