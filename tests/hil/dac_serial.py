@@ -71,4 +71,5 @@ with serial.Serial(a.port,115200,timeout=.1,write_timeout=2) as port:
     finally:
         try:ask('dac enable 0');ask('page adc');ask('adc source real');ask('mode dso');ask('run 1')
         except Exception:pass
+result['transactions']=len(log)
 out.write_text(json.dumps(result,indent=2));print('PASS COM27 DAC RPC/CRC/readback and ADC/DAC isolation',len(log))

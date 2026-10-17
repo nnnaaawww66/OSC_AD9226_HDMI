@@ -7,6 +7,9 @@
 - `flash.ps1`：对封存镜像执行 QSPI 擦除、写入与验证；保留原 Flash 备份。
 - `flash.ps1 -RestoreOriginal`：用备份恢复原 Flash。
 - `host/launch.ps1` 或发布版 `Z7_LAB.exe`：中文上位机，COM27 / 115200。
+- `python -X utf8 tests/verify_dac_release.py`：验证当前 4.0 发布文件、正式报告、实板结果和连续一小时联合长测，重新生成资格记录；长测未满一小时即拒绝通过。`--progress` 只查看进度，不封存验收。
+
+日常保持中间 QSPI 跳线，上电自动启动；更新 Flash 时按厂家流程先断电切到 JTAG、上电写入，再断电切回 QSPI。完整操作见 `docs/User_Manual.md`。本次已实际写入、读回校验，并由用户切换 QSPI 后断电重启验证。
 
 以下为 ADC 基础版本说明；与 4.0 扩展不一致时，以本次扩展说明与实测交付报告为准。原“一小时”测试结果只证明原 ADC 发布版本，不替代新版本实测。
 

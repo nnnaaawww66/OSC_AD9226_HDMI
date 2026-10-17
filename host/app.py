@@ -105,7 +105,7 @@ class Window(QMainWindow):
         tab=QWidget();lay=QHBoxLayout(tab);control_widget=QWidget();controls=QVBoxLayout(control_widget);scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(control_widget);scroll.setMinimumWidth(360);view=QVBoxLayout();lay.addWidget(scroll,1);lay.addLayout(view,2)
         box,f=self.group('DAC904 独立发生器');controls.addWidget(box)
         self.shape=self.combo([('正弦波','sine'),('方波','square'),('三角波','triangle'),('锯齿波','saw'),('直流','dc'),('数学表达式','expression'),('CSV 任意波形','csv')]);self.freq=self.spin(.1,5_000_000,1000,6,' Hz');self.amp=self.spin(0,100,10,3,' %FS p-p');self.dc=self.spin(0,100,50,3,' %FS');self.duty=self.spin(1,99,50,3,' %');self.enabled=QCheckBox('上传成功后开启输出（默认关闭）')
-        for name,w in [('波形',self.shape),('重复频率',self.freq),('峰峰值',self.amp),('直流偏置',self.dc),('占空比 / 三角顶点',self.duty)]:f.addRow(name,w)
+        for name,w in [('波形',self.shape),('重复频率',self.freq),('满幅峰峰值',self.amp),('零值偏置',self.dc),('占空比 / 三角顶点',self.duty)]:f.addRow(name,w)
         f.addRow(self.enabled)
         self.formula=QLineEdit('0.8*sin(2*pi*t)+0.2*sin(6*pi*t)');f.addRow('归一化表达式',self.formula)
         hint=QLabel('t 为单周期 0≤t<1；结果须在 -1～+1\nsin cos abs sqrt exp log where minimum maximum\n例：where(t<0.25,1,-1)');hint.setWordWrap(True);f.addRow(hint)
@@ -142,7 +142,8 @@ class Window(QMainWindow):
         try:
             self.current_table=make_table(self.shape.currentData(),self.amp.value()/100,self.dc.value()/100,self.duty.value()/100,self.formula.text(),self.csv_values)
             f=actual_frequency(self.freq.value());self.plot.set_data(self.current_table,f)
-            self.preview_label.setText(f'待发送：2048 点 · 实际 DDS 频率 {f:.9f} Hz · 标称幅度估计 {self.amp.value()*.05:.3f} Vpp · 码值 {self.current_table.min()}～{self.current_table.max()}')
+            actual_pp=(int(self.current_table.max())-int(self.current_table.min()))/16383
+            self.preview_label.setText(f'待发送：2048 点 · 实际 DDS 频率 {f:.9f} Hz · 数字表峰峰值 {actual_pp*100:.3f}% · 标称估计 {actual_pp*5:.3f} Vpp · 码值 {self.current_table.min()}～{self.current_table.max()}')
             return True
         except Exception as exc:self.error(str(exc));return False
     def upload(self):
@@ -206,7 +207,15 @@ class Window(QMainWindow):
         readable='  |  '.join(f'{labels[k]}: {v}' for k,v in values.items() if k in labels)
         if cmd=='dac status':self.dac_status.setPlainText(readable)
         elif cmd in ['settings','measure','status']:self.adc_status.setPlainText(self.adc_status.toPlainText()[-1400:]+'\n'+readable)
-        self.status.setText('已连接 · '+line[:140])
+        if cmd=='dac status':
+            running='运行' if values.get('dac_enabled')=='1' else '保持中点'
+            self.status.setText(f"已连接 · HDMI {values.get('page','ADC')} · DAC {running} · 设定频率 {values.get('actual_hz','?')} Hz")
+        elif cmd=='status':
+            names={'DSO':'示波器','DPX':'DPX 密度','EYE':'EYE 眼图','FFT':'FFT 频谱','ROLL':'滚动','MEM':'长存储','SEG':'分段'}
+            source='SIM 测试源' if values.get('source')=='SIM' else 'ADC 实际输入'
+            self.status.setText(f"已连接 · {source} · {names.get(values.get('mode'),values.get('mode',''))} · {'RUN' if values.get('run')=='1' else 'STOP'} · {float(values.get('rate',0))/1e6:g} MSa/s · 故障 {values.get('errors','0')}")
+        elif cmd.startswith('dac chunk '):self.status.setText(f"正在上传波形 · {values.get('dac_uploaded','?')} / 2048 点")
+        elif cmd.startswith('dac commit '):self.status.setText('波形表已校验并提交，正在读取板卡状态')
     def error(self,message):
         self.log.appendPlainText('错误：'+message);self.status.setText('错误：'+message)
     def closeEvent(self,event):self.timer.stop();self.worker.shutdown();event.accept()

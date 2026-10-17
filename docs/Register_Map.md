@@ -22,7 +22,7 @@
 | 04C/050 | DMA_LENGTH/START | RW点数；写START bit0启动，bit1清空FIFO并中止源；bit2+bit0启动SYS域递增码带宽测试 |
 | 054/058 | DMA_ACCEPT/FLAGS | RO AXIS累计成功16bit拍数（含ADC及SYS压力源） / bit13源active、12:0 FIFO水位 |
 | 05C/060 | COMMIT/DISPLAY | 写提交后缓冲；RO bit0pending、1前bank |
-| 064 | OWNER | bit0 PS接管；bit1菜单；6:2选项；bit7为当前显示记录的SIM来源。0允许自主PL包络构建 |
+| 064 | OWNER | bit0 PS接管；bit1菜单；6:2选项；bit7当前记录SIM；bit8 DAC页面。0允许自主PL包络构建 |
 | 06C | RELEASE | 写脉冲释放冻结记录；Single仍保持，重新写配置才rearm |
 | 070/074/078 | UI_CRC/HITS/HDROP | RW快照内容CRC、最近统计成功命中与显式丢弃 |
 | 07C/080 | DMA_HWM/FALLBACK | RO DMA FIFO高水位 / PL包络状态 |
@@ -33,10 +33,18 @@
 | 0BC/0C0/0C4 | HIST_COMMIT/DROP/HWM | RO实际RMW命中总数、FIFO/非法地址丢弃和高水位 |
 | 0D0/0D4/0D8 | RASTER_POINT/BUSY/DROP | 写x[7:0]、y[14:8]；RO忙及非法/忙时端点丢弃 |
 | 0E0/0E4 | DMA_FIRST_INDEX | RO首个实际FIFO写入样本的64位数字序号 |
+| 100 | DAC_STEP | RW待提交32位DDS相位步进 |
+| 104 | DAC_CONTROL | RW待提交bit14启用、13:0停止保持码 |
+| 108 | DAC_COMMIT | 写bit0原子提交；读bit0 busy、bit1 bank |
+| 10C | DAC_CYCLES | RO计数，并锁存同拍相位/输出码/启用/bank |
+| 110 | DAC_FS | RO固定50000000 |
+| 114 | DAC_PHASE | RO 10C触发的锁存相位 |
+| 118 | DAC_SAMPLE | RO锁存bits15:2输出码、bit1启用、bit0 bank |
 | 10000–1FFFF | FROZEN_RING | RO按时间顺序的16384点，每个32-bit位置承载一个16-bit点；未ready返回SLVERR |
 | 20000–20EFF | WAVE_BACK | WO960列；低10位y_top，高10位y_bottom |
+| 30000–31FFC | DAC_TABLE_BACK | RW2048点待提交表，32位间距、低14位；支持真实BRAM读回 |
 | 40000–4E0FF | HIST_BACK | WO160×90字节密度，单地址按32-bit间距写 |
-| 80000–8707F | TEXT_BACK | WO160×45 ASCII字符 |
+| 80000–8257C | TEXT_BACK | WO80×30字符，低9位字形索引；原生16×24 |
 | C0000–CE0FF | HIST_READ | RO共享PL直方图，扫描/RMW忙时禁止读 |
 
 0xF8为PL视频像素流实际CRC，覆盖有效区RGB。0x70的资产CRC覆盖文字、包络以及当前有效密度平面，不等于0xF8的视频像素CRC，也不等于采集卡经颜色转换后的图像CRC。静态字体和网格由版本与源文件SHA256标识。读取自由运行64位计数器应采用高/低/高重读；冻结触发元数据在释放前不变。
