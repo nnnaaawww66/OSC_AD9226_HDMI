@@ -391,9 +391,9 @@ static void draw_ui(void) {
     else
         text(4, 67, "N/A");
     text(6, 67, "峰峰值");
-    if (valid_record && cfg.uv_per_code > 0)
+    if (valid_record && !measurement.overrange && cfg.uv_per_code > 0)
         text(7, 67, "%.4f V", (measurement.max - measurement.min) * cfg.uv_per_code / 1e6);
-    else if (valid_record)
+    else if (valid_record && !measurement.overrange)
         text(7, 67, "%u 码值", measurement.max - measurement.min);
     else
         text(7, 67, "等待采样");
@@ -402,8 +402,10 @@ static void draw_ui(void) {
         sqrt(fmax(0, measurement.rms * measurement.rms - 2 * cfg.cal_zero * measurement.mean +
                          cfg.cal_zero * cfg.cal_zero)) *
         cfg.uv_per_code / 1e6;
-    text(10, 67, "%.4f V", rms_v);
-    text(11, 67, "均值 %.3f V", (measurement.mean - cfg.cal_zero) * cfg.uv_per_code / 1e6);
+    if(valid_record && !measurement.overrange){
+        text(10, 67, "%.4f V", rms_v);
+        text(11, 67, "均值 %.3f V", (measurement.mean - cfg.cal_zero) * cfg.uv_per_code / 1e6);
+    }else text(10,67,"N/A");
     text(12, 67, "触发设置");
     text(13, 67, "%s / %s",
          cfg.trig == 0   ? "自动"
